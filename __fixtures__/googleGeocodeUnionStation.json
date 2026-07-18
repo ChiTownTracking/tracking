@@ -1,0 +1,96 @@
+{
+  "places": [
+    {
+      "id": "ChIJXS-zu40sDogRCRFLBMBdmF8",
+      "types": [
+        "train_station",
+        "transit_station",
+        "transportation_service",
+        "point_of_interest",
+        "establishment"
+      ],
+      "formattedAddress": "225 S Canal St, Chicago, IL 60606, USA",
+      "location": {
+        "latitude": 41.8786902,
+        "longitude": -87.640312
+      },
+      "displayName": {
+        "text": "Chicago Union Station",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJ8bGbjcAsDogR7SF280Fss7o",
+      "types": [
+        "transportation_service",
+        "point_of_interest",
+        "establishment"
+      ],
+      "formattedAddress": "225 S Canal St, Chicago, IL 60661, USA",
+      "location": {
+        "latitude": 41.8786006,
+        "longitude": -87.6388812
+      },
+      "displayName": {
+        "text": "Chicago Union Station",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJGbLD-sAsDogRSPIImpjwUIM",
+      "types": [
+        "transit_station",
+        "transportation_service",
+        "point_of_interest",
+        "establishment"
+      ],
+      "formattedAddress": "Chicago, IL, USA",
+      "location": {
+        "latitude": 41.8786738,
+        "longitude": -87.6403334
+      },
+      "displayName": {
+        "text": "Union Station",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJQXPyisAsDogRCkEX3642WjQ",
+      "types": [
+        "bus_stop",
+        "transit_stop",
+        "transit_station",
+        "transportation_service",
+        "point_of_interest",
+        "establishment"
+      ],
+      "formattedAddress": "W Polk St, Chicago, IL 60606, USA",
+      "location": {
+        "latitude": 41.8787874,
+        "longitude": -87.639465
+      },
+      "displayName": {
+        "text": "Chicago Amtrak/Union Station",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJSyTB6j4tDogRqZw3jIePCis",
+      "types": [
+        "transit_depot",
+        "transportation_service",
+        "point_of_interest",
+        "establishment"
+      ],
+      "formattedAddress": "222 S Riverside Plaza 29th Floor, Chicago, IL 60606, USA",
+      "location": {
+        "latitude": 41.879131,
+        "longitude": -87.63849599999999
+      },
+      "displayName": {
+        "text": "Union Station",
+        "languageCode": "en"
+      }
+    }
+  ]
+}

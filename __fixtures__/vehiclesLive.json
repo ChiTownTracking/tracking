@@ -1,0 +1,4 @@
+[
+  {"VehicleId":1000067169,"DriverID":null,"Location":null,"LocationText":"Stationary with Ignition OFF at 301 Lively Blvd, Elk Grove Village, Illinois 60007 since July 13 2026 6:17:20 PM CDT. ","Latitude":42.02203,"Longitude":-87.96823,"Heading":0,"Speed":0,"LastEventDateTime":"2026-07-13T18:17:20-05:00","LastEventDescription":"Ignition-Off","NonTracking":false,"LastAnalogueMeasurement":[],"LastAnalogueEventDateTime":""},
+  {"VehicleId":1000074171,"DriverID":null,"Location":null,"LocationText":"Stationary with Ignition OFF at 330 Crossen Ave, Elk Grove Village, Illinois 60007 since July 13 2026 12:20:47 PM CDT. ","Latitude":42.0218,"Longitude":-87.96819,"Heading":0,"Speed":0,"LastEventDateTime":"2026-07-13T12:20:47-05:00","LastEventDescription":"Ignition-Off","NonTracking":false,"LastAnalogueMeasurement":[],"LastAnalogueEventDateTime":""}
+]

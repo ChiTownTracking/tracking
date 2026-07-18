@@ -1,0 +1,177 @@
+{
+  "geocoding": {
+    "version": "0.2",
+    "attribution": "https://openrouteservice.org/terms-of-service/#attribution-geocode",
+    "query": {
+      "text": "Union Station, Chicago, IL",
+      "size": 2,
+      "layers": [
+        "venue",
+        "address"
+      ],
+      "private": false,
+      "focus.point.lat": 41.8781,
+      "focus.point.lon": -87.6298,
+      "boundary.rect.min_lat": 36.5,
+      "boundary.rect.max_lat": 47.5,
+      "boundary.rect.min_lon": -93.5,
+      "boundary.rect.max_lon": -82,
+      "lang": {
+        "name": "English",
+        "iso6391": "en",
+        "iso6393": "eng",
+        "via": "default",
+        "defaulted": true
+      },
+      "querySize": 20,
+      "parser": "pelias",
+      "parsed_text": {
+        "subject": "Union Station",
+        "venue": "Union Station",
+        "locality": "Chicago",
+        "region": "IL",
+        "admin": "Chicago, IL"
+      }
+    },
+    "warnings": [
+      "invalid language provided via header"
+    ],
+    "engine": {
+      "name": "Pelias",
+      "author": "Mapzen",
+      "version": "1.0"
+    },
+    "timestamp": 1784146238458
+  },
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.639732,
+          41.878988
+        ]
+      },
+      "properties": {
+        "id": "way/868408635",
+        "gid": "openstreetmap:venue:way/868408635",
+        "layer": "venue",
+        "source": "openstreetmap",
+        "source_id": "way/868408635",
+        "name": "Chicago Union Station",
+        "housenumber": "225",
+        "street": "South Canal Street",
+        "postalcode": "60606",
+        "confidence": 1,
+        "match_type": "exact",
+        "distance": 0.829,
+        "accuracy": "point",
+        "country": "United States",
+        "country_gid": "whosonfirst:country:85633793",
+        "country_a": "USA",
+        "region": "Illinois",
+        "region_gid": "whosonfirst:region:85688697",
+        "region_a": "IL",
+        "county": "Cook County",
+        "county_gid": "whosonfirst:county:102084317",
+        "county_a": "CO",
+        "localadmin": "Chicago",
+        "localadmin_gid": "whosonfirst:localadmin:404496273",
+        "locality": "Chicago",
+        "locality_gid": "whosonfirst:locality:85940195",
+        "borough": "West Side",
+        "borough_gid": "whosonfirst:borough:957979099",
+        "neighbourhood": "West Loop",
+        "neighbourhood_gid": "whosonfirst:neighbourhood:85865741",
+        "continent": "North America",
+        "continent_gid": "whosonfirst:continent:102191575",
+        "label": "Chicago Union Station, West Side, Chicago, IL, USA",
+        "addendum": {
+          "osm": {
+            "wheelchair": "yes",
+            "wikidata": "Q1155989",
+            "wikipedia": "en:Chicago Union Station",
+            "operator": "Amtrak",
+            "website": "https://www.chicagounionstation.com/",
+            "opening_hours": "Mo-Sa 05:30-00:00; Su 05:30-00:00"
+          }
+        }
+      },
+      "bbox": [
+        -87.6398511,
+        41.8738816,
+        -87.6382014,
+        41.8824693
+      ]
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.639842,
+          41.878476
+        ]
+      },
+      "properties": {
+        "id": "way/203442440",
+        "gid": "openstreetmap:venue:way/203442440",
+        "layer": "venue",
+        "source": "openstreetmap",
+        "source_id": "way/203442440",
+        "name": "Chicago Union Station",
+        "housenumber": "210",
+        "street": "South Canal Street",
+        "postalcode": "60606",
+        "confidence": 1,
+        "match_type": "exact",
+        "distance": 0.833,
+        "accuracy": "point",
+        "country": "United States",
+        "country_gid": "whosonfirst:country:85633793",
+        "country_a": "USA",
+        "region": "Illinois",
+        "region_gid": "whosonfirst:region:85688697",
+        "region_a": "IL",
+        "county": "Cook County",
+        "county_gid": "whosonfirst:county:102084317",
+        "county_a": "CO",
+        "localadmin": "Chicago",
+        "localadmin_gid": "whosonfirst:localadmin:404496273",
+        "locality": "Chicago",
+        "locality_gid": "whosonfirst:locality:85940195",
+        "borough": "West Side",
+        "borough_gid": "whosonfirst:borough:957979099",
+        "neighbourhood": "West Loop",
+        "neighbourhood_gid": "whosonfirst:neighbourhood:85865741",
+        "continent": "North America",
+        "continent_gid": "whosonfirst:continent:102191575",
+        "label": "Chicago Union Station, West Side, Chicago, IL, USA",
+        "addendum": {
+          "osm": {
+            "wheelchair": "yes",
+            "wikidata": "Q1155989",
+            "wikipedia": "en:Chicago Union Station",
+            "operator": "Amtrak",
+            "website": "https://www.chicagounionstation.com/",
+            "opening_hours": "Mo-Sa 05:30-00:00; Su 05:30-00:00"
+          }
+        }
+      },
+      "bbox": [
+        -87.6409806,
+        41.8781389,
+        -87.6398307,
+        41.8791951
+      ]
+    }
+  ],
+  "bbox": [
+    -87.6409806,
+    41.8738816,
+    -87.6382014,
+    41.8824693
+  ]
+}

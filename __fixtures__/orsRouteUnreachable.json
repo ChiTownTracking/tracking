@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": 2010,
+    "message": "Could not find routable point within a radius of 350.0 meters of specified coordinate 1: -87.9260000 41.9660000."
+  },
+  "info": {
+    "engine": {
+      "build_date": "2026-06-12T10:08:58Z",
+      "graph_version": "4",
+      "graph_date": "2026-07-12T12:58:22Z",
+      "osm_date": "2026-07-05T23:59:55Z",
+      "version": "9.9.0"
+    },
+    "timestamp": 1784158892141
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "places": [
+    {
+      "id": "ChIJ2y7xkU0rDogR3KSIsJbbrNA",
+      "types": [
+        "tourist_attraction",
+        "ferris_wheel",
+        "amusement_center",
+        "cultural_center",
+        "event_venue",
+        "point_of_interest",
+        "establishment"
+      ],
+      "formattedAddress": "600 E Grand Ave, Chicago, IL 60611, USA",
+      "location": {
+        "latitude": 41.8918633,
+        "longitude": -87.6050944
+      },
+      "displayName": {
+        "text": "Navy Pier",
+        "languageCode": "en"
+      }
+    }
+  ]
+}

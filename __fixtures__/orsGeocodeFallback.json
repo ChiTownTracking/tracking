@@ -1,0 +1,137 @@
+{
+  "geocoding": {
+    "version": "0.2",
+    "attribution": "https://openrouteservice.org/terms-of-service/#attribution-geocode",
+    "query": {
+      "text": "Navy Pier, Chicago, IL",
+      "size": 2,
+      "layers": [
+        "venue",
+        "address"
+      ],
+      "private": false,
+      "focus.point.lat": 41.8781,
+      "focus.point.lon": -87.6298,
+      "boundary.rect.min_lat": 36.5,
+      "boundary.rect.max_lat": 47.5,
+      "boundary.rect.min_lon": -93.5,
+      "boundary.rect.max_lon": -82,
+      "lang": {
+        "name": "English",
+        "iso6391": "en",
+        "iso6393": "eng",
+        "via": "default",
+        "defaulted": true
+      },
+      "querySize": 20,
+      "parser": "pelias",
+      "parsed_text": {
+        "subject": "Navy Pier",
+        "street": "Navy Pier",
+        "locality": "Chicago",
+        "region": "IL",
+        "admin": "Chicago, IL"
+      }
+    },
+    "warnings": [
+      "invalid language provided via header"
+    ],
+    "engine": {
+      "name": "Pelias",
+      "author": "Mapzen",
+      "version": "1.0"
+    },
+    "timestamp": 1784146238678
+  },
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.823623,
+          42.089919
+        ]
+      },
+      "properties": {
+        "id": "us/il/cook-addresses-county:26edd9132a191c30",
+        "gid": "openaddresses:address:us/il/cook-addresses-county:26edd9132a191c30",
+        "layer": "address",
+        "source": "openaddresses",
+        "source_id": "us/il/cook-addresses-county:26edd9132a191c30",
+        "name": "2600 Navy Boulevard",
+        "housenumber": "2600",
+        "street": "Navy Boulevard",
+        "postalcode": "60026",
+        "confidence": 0.8,
+        "match_type": "fallback",
+        "distance": 28.517,
+        "accuracy": "point",
+        "country": "United States",
+        "country_gid": "whosonfirst:country:85633793",
+        "country_a": "USA",
+        "region": "Illinois",
+        "region_gid": "whosonfirst:region:85688697",
+        "region_a": "IL",
+        "county": "Cook County",
+        "county_gid": "whosonfirst:county:102084317",
+        "county_a": "CO",
+        "localadmin": "Northfield Township",
+        "localadmin_gid": "whosonfirst:localadmin:404497637",
+        "locality": "Glenview",
+        "locality_gid": "whosonfirst:locality:85940839",
+        "continent": "North America",
+        "continent_gid": "whosonfirst:continent:102191575",
+        "label": "2600 Navy Boulevard, Glenview, IL, USA"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.82392,
+          42.089846
+        ]
+      },
+      "properties": {
+        "id": "us/il/cook-addresses-county:50cee5dd87c4e2e2",
+        "gid": "openaddresses:address:us/il/cook-addresses-county:50cee5dd87c4e2e2",
+        "layer": "address",
+        "source": "openaddresses",
+        "source_id": "us/il/cook-addresses-county:50cee5dd87c4e2e2",
+        "name": "2640 Navy Boulevard",
+        "housenumber": "2640",
+        "street": "Navy Boulevard",
+        "postalcode": "60026",
+        "confidence": 0.8,
+        "match_type": "fallback",
+        "distance": 28.524,
+        "accuracy": "point",
+        "country": "United States",
+        "country_gid": "whosonfirst:country:85633793",
+        "country_a": "USA",
+        "region": "Illinois",
+        "region_gid": "whosonfirst:region:85688697",
+        "region_a": "IL",
+        "county": "Cook County",
+        "county_gid": "whosonfirst:county:102084317",
+        "county_a": "CO",
+        "localadmin": "Northfield Township",
+        "localadmin_gid": "whosonfirst:localadmin:404497637",
+        "locality": "Glenview",
+        "locality_gid": "whosonfirst:locality:85940839",
+        "continent": "North America",
+        "continent_gid": "whosonfirst:continent:102191575",
+        "label": "2640 Navy Boulevard, Glenview, IL, USA"
+      }
+    }
+  ],
+  "bbox": [
+    -87.82392,
+    42.089846,
+    -87.823623,
+    42.089919
+  ]
+}

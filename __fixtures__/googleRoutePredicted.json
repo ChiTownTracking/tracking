@@ -1,0 +1,15 @@
+{
+  "routes": [
+    {
+      "legs": [
+        {
+          "duration": "1061s",
+          "staticDuration": "1332s"
+        }
+      ],
+      "distanceMeters": 10169,
+      "duration": "1061s",
+      "staticDuration": "1332s"
+    }
+  ]
+}

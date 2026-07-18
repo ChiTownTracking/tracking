@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+@theme {
+  /* Staff/dispatch theme (default, root-level) */
+  --color-bg: #12161c; /* Midnight Slate */
+  --color-panel: #1b212b; /* Graphite Panel */
+  --color-text: #e7eaf0; /* Signal White */
+  --color-text-muted: #8a93a3; /* Slate Mist */
+  --color-accent: #3a6ea5; /* Municipal Blue */
+  --color-live: #2fa89a; /* Transit Teal */
+  --color-alert: #c8102e; /* Flag Red */
+}
+
+@theme inline {
+  --font-heading: var(--font-space-grotesk);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-ibm-plex-mono);
+}
+
+/* ── Dispatch light mode ──────────────────────────────────────────────
+   Dark is the default (the @theme values above double as the implicit
+   [data-theme="dark"] set — no explicit dark block needed). Only the
+   neutrals change here; the accent colors (Municipal Blue, Transit Teal,
+   Flag Red) are shared across both modes on purpose. This rule is
+   unlayered, so it wins over Tailwind's layered :root theme output. */
+[data-theme='light'] {
+  --color-bg: #f4f6f9;
+  --color-panel: #ffffff;
+  --color-text: #1b2430;
+  --color-text-muted: #5b6472;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* ── Customer-facing tracking page theme ──────────────────────────────
+   Scoped to .customer-theme only — the staff dispatch tokens above are
+   defined at :root and stay global; this class never touches :root, so
+   it can't leak into the dispatch theme. Body copy inside this scope
+   still inherits Inter from the global `body` rule above (reused, not
+   reloaded); only headings switch font via .customer-heading. */
+.customer-theme {
+  /* NOTE: placeholder colors pending real ChiTown Trolley brand assets —
+     swap these when available, do not treat as final.
+     Overrides the SAME token names the staff theme uses so components
+     (e.g. VehicleMarkerIcon) can be reused unchanged inside this scope. */
+  --color-bg: #faf6ef;
+  --color-panel: #ffffff;
+  --color-text: #2b2320;
+  --color-text-muted: #7a6f63;
+  --color-accent: #b23a2e;
+  --color-live: #1f8a7d; /* teal, darkened for contrast on the warm bg */
+  --color-alert: #c8102e;
+
+  background: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+}
+
+.customer-heading {
+  font-family: var(--font-customer-heading), Georgia, serif;
+}
+
+/* ── Dispatch dashboard: map markers & status dots ────────────────────
+   Used by components/VehicleMarkerIcon.tsx (rendered as AdvancedMarker
+   children on every map) and VehicleSidebar's status dot. */
+.vehicle-marker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+
+.vehicle-marker__ring {
+  position: absolute;
+  inset: 4px;
+  border-radius: 9999px;
+  background: var(--color-panel);
+  border: 2px solid var(--color-text-muted);
+}
+
+.vehicle-marker--live .vehicle-marker__ring {
+  border-color: var(--color-live);
+  animation: fleet-pulse 2s ease-in-out infinite;
+}
+
+.vehicle-marker__bus {
+  position: relative;
+}
+
+.vehicle-marker__heading {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+}
+
+/* Customer tracking page: numbered waypoint markers (TrackMap/BoardMap
+   AdvancedMarker children). The route polyline itself is drawn by
+   components/RoutePolyline.tsx, which resolves the accent token at runtime —
+   Google writes stroke colors as literals, so the old Leaflet-era
+   .route-line stylesheet rule is gone. */
+.waypoint-marker {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
+}
+
+/* Accent-filled teardrop with a white outline; the CSS wins over lucide's
+   fill="none"/stroke="currentColor" presentation attributes, and the pin's
+   inner circle picks up the white stroke so it stays legible. Matches the
+   route polyline's accent so stops and route read as one system. */
+.waypoint-marker__pin {
+  display: block;
+  fill: var(--color-accent);
+  stroke: #ffffff;
+}
+
+/* Sequence badge: order still matters on a multi-stop route, it's just no
+   longer the whole marker. */
+.waypoint-marker__badge {
+  position: absolute;
+  top: -4px;
+  right: -7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 9999px;
+  background: #ffffff;
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid var(--color-accent);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.status-dot--live {
+  background: var(--color-live);
+  animation: fleet-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fleet-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(47 168 154 / 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(47 168 154 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vehicle-marker--live .vehicle-marker__ring,
+  .status-dot--live {
+    /* Solid live color, no pulse. */
+    animation: none;
+  }
+}

@@ -1,0 +1,526 @@
+{
+  "routes": [
+    {
+      "legs": [
+        {
+          "distanceMeters": 12794,
+          "duration": "1236s",
+          "staticDuration": "1236s",
+          "polyline": {
+            "encodedPolyline": "unr~Fjb|uO_INEsO?[oF@KMeBFcKHuCCcCQa@Mc@a@{B_EOg@Iw@?}o@I_AS{@_@w@o@o@cCqBW_@Kc@Aw@JwE@wCT{Cp@_H^sGPuIVsJI[JiHIs@EEs@IuHFkDJsIA]UkBDuATeAd@iEjCsD`C{]|SiCzAi@l@]x@Qz@EnAObFQ|A]xAi@pAo@dAe@f@c@^}@f@gAZuKjBsAR_BPgQlC}BNqKPkBVsBr@qPxGaHtCyFdB{FpAqJtAug@xKuCb@sBHyJCuIEgABoCTaCh@gBj@eBz@uBvAeB|A}@bAoC|D_HbKmA~A{A|AyBjByB|AiBdAmZtMsMpG}LlGiA`@uAXkBBqEKOUsDe@oBOFxEXby@jJKtHGBpF|KK?m@"
+          },
+          "startLocation": {
+            "latLng": {
+              "latitude": 41.878991,
+              "longitude": -87.6395833
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 41.9490412,
+              "longitude": -87.655372
+            }
+          },
+          "steps": [
+            {
+              "distanceMeters": 178,
+              "staticDuration": "58s",
+              "polyline": {
+                "encodedPolyline": "unr~Fjb|uO_IN"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.878991,
+                  "longitude": -87.6395833
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.880589,
+                  "longitude": -87.63966049999999
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "DEPART",
+                "instructions": "Head north on S Canal St toward W Adams St/U.S. Route 66"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 220,
+              "staticDuration": "49s",
+              "polyline": {
+                "encodedPolyline": "uxr~Fzb|uOEsO"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.880589,
+                  "longitude": -87.63966049999999
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.880617199999996,
+                  "longitude": -87.6370044
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_RIGHT",
+                "instructions": "Turn right onto W Monroe St"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 155,
+              "staticDuration": "42s",
+              "polyline": {
+                "encodedPolyline": "{xr~Ffr{uO?[oF@KM"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.880617199999996,
+                  "longitude": -87.6370044
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.881879999999995,
+                  "longitude": -87.6367951
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "RAMP_LEFT",
+                "instructions": "Turn left onto the ramp to N Lower Wacker Dr"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 2287,
+              "staticDuration": "259s",
+              "polyline": {
+                "encodedPolyline": "w`s~F~p{uOeBFcKHuCCcCQa@Mc@a@{B_EOg@Iw@?}o@I_AS{@_@w@o@o@cCqBW_@Kc@Aw@JwE@wCT{Cp@_H^sGPuIVsJ"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.881879999999995,
+                  "longitude": -87.6367951
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.887435,
+                  "longitude": -87.6159259
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_LEFT",
+                "instructions": "Turn left onto N Lower Wacker Dr"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "1.4 mi"
+                },
+                "staticDuration": {
+                  "text": "4 mins"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 159,
+              "staticDuration": "22s",
+              "polyline": {
+                "encodedPolyline": "oct~FpnwuOI[JiHIs@"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.887435,
+                  "longitude": -87.6159259
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.8874839,
+                  "longitude": -87.6140444
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_SLIGHT_LEFT",
+                "instructions": "Slight left onto E Lower Wacker Dr"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 206,
+              "staticDuration": "28s",
+              "polyline": {
+                "encodedPolyline": "wct~FvbwuOEEs@IuHF"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.8874839,
+                  "longitude": -87.6140444
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.8893214,
+                  "longitude": -87.614004
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_SLIGHT_LEFT",
+                "instructions": "Slight left"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 304,
+              "staticDuration": "18s",
+              "polyline": {
+                "encodedPolyline": "got~FnbwuOkDJsIA]U"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.8893214,
+                  "longitude": -87.614004
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.8920337,
+                  "longitude": -87.6139357
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "STRAIGHT",
+                "instructions": "Take the ramp to US-41 N/N Jean Baptiste Pointe du Sable Lake Shore Dr/Lake Shore Dr"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.2 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 7524,
+              "staticDuration": "372s",
+              "polyline": {
+                "encodedPolyline": "e`u~FbbwuOkBDuATeAd@iEjCsD`C{]|SiCzAi@l@]x@Qz@EnAObFQ|A]xAi@pAo@dAe@f@c@^}@f@gAZuKjBsAR_BPgQlC}BNqKPkBVsBr@qPxGaHtCyFdB{FpAqJtAug@xKuCb@sBHyJCuIEgABoCTaCh@gBj@eBz@uBvAeB|A}@bAoC|D_HbKmA~A{A|AyBjByB|AiBdAmZtMsMpG}LlGiA`@uAXkBBqEK"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.8920337,
+                  "longitude": -87.6139357
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.9531266,
+                  "longitude": -87.6445366
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_SLIGHT_LEFT",
+                "instructions": "Slight left onto US-41 N/N Jean Baptiste Pointe du Sable Lake Shore Dr/Lake Shore Dr"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "4.7 mi"
+                },
+                "staticDuration": {
+                  "text": "6 mins"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 177,
+              "staticDuration": "27s",
+              "polyline": {
+                "encodedPolyline": "a~`_Gja}uOOUsDe@oBO"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.9531266,
+                  "longitude": -87.6445366
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.9546698,
+                  "longitude": -87.6441552
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "RAMP_RIGHT",
+                "instructions": "Take the Irving Park Rd/IL-19 exit"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 860,
+              "staticDuration": "179s",
+              "polyline": {
+                "encodedPolyline": "uga_G~~|uOFxEXby@"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.9546698,
+                  "longitude": -87.6441552
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.954497599999996,
+                  "longitude": -87.6545505
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_LEFT",
+                "instructions": "Turn left onto IL-19 W/W Irving Park Rd"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.5 mi"
+                },
+                "staticDuration": {
+                  "text": "3 mins"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 202,
+              "staticDuration": "52s",
+              "polyline": {
+                "encodedPolyline": "sfa_G|__vOjJK"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.954497599999996,
+                  "longitude": -87.6545505
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.9526787,
+                  "longitude": -87.6544928
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_LEFT",
+                "instructions": "Turn left onto N Sheridan Rd"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 172,
+              "staticDuration": "31s",
+              "polyline": {
+                "encodedPolyline": "g{`_Gp__vOtHG"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.9526787,
+                  "longitude": -87.6544928
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.9511323,
+                  "longitude": -87.65444649999999
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "NAME_CHANGE",
+                "instructions": "Continue onto N Sheffield Ave"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 100,
+              "staticDuration": "20s",
+              "polyline": {
+                "encodedPolyline": "qq`_Gh__vOBpF"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.9511323,
+                  "longitude": -87.65444649999999
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.951112099999996,
+                  "longitude": -87.6556609
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_RIGHT",
+                "instructions": "Turn right onto W Grace St"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "328 ft"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 231,
+              "staticDuration": "67s",
+              "polyline": {
+                "encodedPolyline": "mq`_Gzf_vO|KK"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.951112099999996,
+                  "longitude": -87.6556609
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.9490389,
+                  "longitude": -87.6555977
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_LEFT",
+                "instructions": "Turn left onto N Kenmore Ave"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "0.1 mi"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            },
+            {
+              "distanceMeters": 19,
+              "staticDuration": "12s",
+              "polyline": {
+                "encodedPolyline": "od`_Gnf_vO?m@"
+              },
+              "startLocation": {
+                "latLng": {
+                  "latitude": 41.9490389,
+                  "longitude": -87.6555977
+                }
+              },
+              "endLocation": {
+                "latLng": {
+                  "latitude": 41.9490412,
+                  "longitude": -87.655372
+                }
+              },
+              "navigationInstruction": {
+                "maneuver": "TURN_LEFT",
+                "instructions": "Turn left onto W Waveland Ave\nDestination will be on the right"
+              },
+              "localizedValues": {
+                "distance": {
+                  "text": "62 ft"
+                },
+                "staticDuration": {
+                  "text": "1 min"
+                }
+              },
+              "travelMode": "DRIVE"
+            }
+          ],
+          "localizedValues": {
+            "distance": {
+              "text": "7.9 mi"
+            },
+            "duration": {
+              "text": "21 mins"
+            },
+            "staticDuration": {
+              "text": "21 mins"
+            }
+          }
+        }
+      ],
+      "distanceMeters": 12793,
+      "duration": "1235s",
+      "polyline": {
+        "encodedPolyline": "unr~Fjb|uO_INEsO?[oF@KMeBFcKHuCCcCQa@Mc@a@{B_EOg@Iw@?}o@I_AS{@_@w@o@o@cCqBW_@Kc@Aw@JwE@wCT{Cp@_H^sGPuIVsJI[JiHIs@EEs@IuHFkDJsIA]UkBDuATeAd@iEjCsD`C{]|SiCzAi@l@]x@Qz@EnAObFQ|A]xAi@pAo@dAe@f@c@^}@f@gAZuKjBsAR_BPgQlC}BNqKPkBVsBr@qPxGaHtCyFdB{FpAqJtAug@xKuCb@sBHyJCuIEgABoCTaCh@gBj@eBz@uBvAeB|A}@bAoC|D_HbKmA~A{A|AyBjByB|AiBdAmZtMsMpG}LlGiA`@uAXkBBqEKOUsDe@oBOFxEXby@jJKtHGBpF|KK?m@"
+      }
+    }
+  ]
+}
