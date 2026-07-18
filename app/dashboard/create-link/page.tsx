@@ -289,7 +289,7 @@ export default function CreateLinkPage() {
   return (
     <div className="flex min-h-screen flex-col bg-bg text-text">
       <header className="flex shrink-0 items-center gap-6 bg-panel px-4 py-2">
-        <h1 className="font-heading text-lg font-medium">
+        <h1 className="min-w-0 truncate font-heading text-lg font-medium">
           ChiTown Tracking — Fleet Dispatch
         </h1>
         <DashboardNav />
@@ -336,7 +336,9 @@ export default function CreateLinkPage() {
           </label>
 
           {routes.length === 0 ? (
-            <div className="flex gap-4">
+            // Stacked below sm: datetime-local inputs have a large intrinsic
+            // min-width and can't share a 375px row (Phase N1).
+            <div className="flex flex-col gap-4 sm:flex-row">
               <label className="block flex-1">
                 <span className="mb-1.5 block text-sm text-text-muted">
                   Window start
@@ -431,7 +433,7 @@ export default function CreateLinkPage() {
                       />
                     </div>
 
-                    <div className="mt-3 flex gap-4">
+                    <div className="mt-3 flex flex-col gap-4 sm:flex-row">
                       <label className="block flex-1">
                         <span className="mb-1.5 block text-sm text-text-muted">
                           Window start

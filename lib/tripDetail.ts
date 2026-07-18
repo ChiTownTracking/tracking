@@ -31,12 +31,21 @@ export interface TripVehicleDetail {
   speedMph: number | null;
   nextStopIndex: number | null;
   stopEtas: { arrival: string | null; departure: string | null }[] | null;
+  // Phase L3: the assignment's staff-written service note ("bus broke
+  // down, swapped to spare") — present only when set, omitted when absent,
+  // same convention as every optional field.
+  serviceNote?: string;
   // EVERY run, not just the active one, each with its clock-derived status.
   schedule: {
     id: string;
     arrivalTime: string;
     waitMinutes: number;
+    // Clock math only — a cancelled entry still carries its clock status;
+    // displays check `cancelled` first.
     status: TripStatus;
+    // Phase L3: present (true) only when staff cancelled this run —
+    // omitted entirely otherwise, mirroring storage.
+    cancelled?: boolean;
     // "HH:mm" — arrival + wait, the run's actual departure (Phase K2:
     // exposed per entry, no longer an internal-only computation).
     departureClock: string;
@@ -103,7 +112,12 @@ export async function buildTripDetailResponse(
           now,
         ),
         departureClock,
+        ...(entry.cancelled ? { cancelled: true } : {}),
+        // A cancelled run gets no prediction even when one was stored at
+        // booking — there is nothing to predict for a run that isn't
+        // happening.
         predictedArrivalRange:
+          !entry.cancelled &&
           entry.predictedArrivalDurationSeconds !== undefined &&
           entry.predictedArrivalStaticDurationSeconds !== undefined
             ? (() => {
@@ -121,6 +135,13 @@ export async function buildTripDetailResponse(
       };
     });
 
+    // Present only when staff set one — the customer-facing "why service
+    // changed" message (Phase L3).
+    const serviceNote =
+      assignment.serviceNote !== undefined
+        ? { serviceNote: assignment.serviceNote }
+        : {};
+
     const live = liveById.get(assignment.vehicleId);
     if (!live) {
       // No live fix: honest nulls, static schedule still fully present —
@@ -134,20 +155,26 @@ export async function buildTripDetailResponse(
         speedMph: null,
         nextStopIndex: null,
         stopEtas: null,
+        ...serviceNote,
         schedule,
       };
     }
 
     // Live progress is attributed to this vehicle's active run: its pickup
     // wait is the dwell at stop 0, and no other stop has any dwell (wait
-    // time is per-run, nowhere else).
-    const activeEntry = selectActiveScheduleEntry(
-      assignment.schedule,
-      trip.totalDurationSeconds,
-      now,
-    );
+    // time is per-run, nowhere else). A replace can leave an assignment
+    // with NO runs (the L1 history-record case) — zero dwell is the honest
+    // attribution then.
+    const activeEntry =
+      assignment.schedule.length > 0
+        ? selectActiveScheduleEntry(
+            assignment.schedule,
+            trip.totalDurationSeconds,
+            now,
+          )
+        : null;
     const dwellMinutes = trip.waypoints.map((_, index) =>
-      index === 0 ? activeEntry.waitMinutes : 0,
+      index === 0 ? (activeEntry?.waitMinutes ?? 0) : 0,
     );
     const progress = summarizeLiveProgress(trip, dwellMinutes, live, trip.id);
 
@@ -164,6 +191,7 @@ export async function buildTripDetailResponse(
       speedMph: live.speed ?? null,
       nextStopIndex: progress.nextStopIndex,
       stopEtas: progress.stopEtas,
+      ...serviceNote,
       schedule,
     };
   });

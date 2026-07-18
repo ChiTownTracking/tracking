@@ -231,7 +231,7 @@ export default function NewTripPage() {
   return (
     <div className="flex min-h-screen flex-col bg-bg text-text">
       <header className="flex shrink-0 items-center gap-6 bg-panel px-4 py-2">
-        <h1 className="font-heading text-lg font-medium">
+        <h1 className="min-w-0 truncate font-heading text-lg font-medium">
           ChiTown Tracking — Fleet Dispatch
         </h1>
         <DashboardNav />

@@ -469,7 +469,7 @@ export function TrackMapContent({
       )}
 
       <div
-        className="relative h-[420px] overflow-hidden rounded-xl"
+        className="relative h-[320px] overflow-hidden rounded-xl sm:h-[420px]"
         style={{ background: 'var(--color-panel)' }}
       >
         <Map

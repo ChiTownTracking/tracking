@@ -112,11 +112,19 @@ function PickerMap({
   contextPin,
   pending,
   onPlace,
+  gestureHandling,
 }: {
   tileStyle: Theme;
   contextPin: LatLng | null;
   pending: LatLng | null;
   onPlace: (lat: number, lng: number) => void;
+  // 'cooperative' for the compact in-form instance (wheel zoom needs Ctrl,
+  // one-finger touch scrolls the page — the picker sits inside a long form
+  // and hijacking page scroll there is hostile, same reason the Leaflet
+  // version set scrollWheelZoom={false}). 'greedy' for the fullscreen
+  // overlay: with the page scroll locked there is nothing to protect, and
+  // cooperative would leave one-finger pan dead on touch (Phase N1).
+  gestureHandling: 'cooperative' | 'greedy';
 }) {
   const center = pending ?? contextPin ?? CHICAGO_FOCUS;
   return (
@@ -132,11 +140,7 @@ function PickerMap({
       // A click must always mean "place the pin here" — never open a POI
       // card (Leaflet had no clickable POIs, so this preserves behavior).
       clickableIcons={false}
-      // Wheel zoom needs Ctrl on purpose: the compact picker sits inside a
-      // long form, and hijacking page scroll there is hostile — same reason
-      // the Leaflet version set scrollWheelZoom={false}. Dragging and the
-      // zoom control still work.
-      gestureHandling="cooperative"
+      gestureHandling={gestureHandling}
       className="h-full w-full"
     >
       {contextPin && !pending && (
@@ -258,6 +262,7 @@ export default function StopPinMap({ tileStyle, pin, onPick }: StopPinMapProps) 
           contextPin={pin}
           pending={pending}
           onPlace={placePending}
+          gestureHandling="cooperative"
         />
         {/* Top-right: clear of the zoom control and Google's own logo/Terms
             attribution (both bottom corners). z-index above the map panes. */}
@@ -309,6 +314,7 @@ export default function StopPinMap({ tileStyle, pin, onPick }: StopPinMapProps) 
                 contextPin={pin}
                 pending={pending}
                 onPlace={placePending}
+                gestureHandling="greedy"
               />
             </div>
             <div className="flex min-h-12 shrink-0 items-center px-4 py-2.5">

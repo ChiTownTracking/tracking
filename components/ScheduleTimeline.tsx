@@ -30,6 +30,7 @@ export default function ScheduleTimeline({
   durationSeconds,
   extraSecondsPerEntry,
   predictedArrivals,
+  cancelledEntries,
 }: {
   schedule: string[];
   durationSeconds: number;
@@ -42,6 +43,11 @@ export default function ScheduleTimeline({
   // parallel to `schedule`. Rows without one (null, or the prop absent —
   // /track passes nothing) simply render no third column.
   predictedArrivals?: (string | null)[];
+  // Optional per-entry cancelled flags, parallel to `schedule` (Phase L3).
+  // A cancelled row overrides its clock status entirely: it reads
+  // "Cancelled" — never "In progress" or "Completed" — and shows no
+  // predicted arrival.
+  cancelledEntries?: boolean[];
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -59,6 +65,7 @@ export default function ScheduleTimeline({
       index,
       extraSeconds: extraSecondsPerEntry?.[index] ?? 0,
       predictedArrival: predictedArrivals?.[index] ?? null,
+      cancelled: cancelledEntries?.[index] ?? false,
     }))
     .sort((a, b) => a.time.localeCompare(b.time))
     .map((entry) => ({
@@ -85,33 +92,39 @@ export default function ScheduleTimeline({
           // completed: red per the brief, muted (low opacity +
           // struck-through time) so it reads "done," not "error" —
           // --color-alert means trouble elsewhere in the app.
+          // Cancelled (Phase L3) shares completed's muted-red strike
+          // treatment, but its status TEXT says so plainly — "already
+          // happened" and "never happened" must not read identically.
           const rowStyle =
-            entry.status === 'in-progress'
-              ? { color: 'var(--color-live)' }
-              : entry.status === 'completed'
-                ? { color: 'var(--color-alert)', opacity: 0.45 }
+            entry.cancelled || entry.status === 'completed'
+              ? { color: 'var(--color-alert)', opacity: 0.45 }
+              : entry.status === 'in-progress'
+                ? { color: 'var(--color-live)' }
                 : { color: 'var(--color-text-muted)' };
+          const label = entry.cancelled
+            ? 'Cancelled'
+            : STATUS_LABELS[entry.status];
           return (
             <li
               key={`${entry.time}-${entry.index}`}
-              title={entry.status}
+              title={entry.cancelled ? 'cancelled' : entry.status}
               className="flex items-center gap-3 text-sm"
               style={rowStyle}
             >
-              {entry.status === 'in-progress' && (
+              {!entry.cancelled && entry.status === 'in-progress' && (
                 <span className="status-dot status-dot--live" />
               )}
               <span
                 className={
-                  entry.status === 'completed'
+                  entry.cancelled || entry.status === 'completed'
                     ? 'font-medium line-through'
                     : 'font-medium'
                 }
               >
                 {formatClock12Hour(entry.time)}
               </span>
-              <span className="text-xs">{STATUS_LABELS[entry.status]}</span>
-              {entry.predictedArrival && (
+              <span className="text-xs">{label}</span>
+              {!entry.cancelled && entry.predictedArrival && (
                 <span className="ml-auto text-xs">
                   arrives {entry.predictedArrival}
                 </span>

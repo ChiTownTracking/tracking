@@ -18,6 +18,8 @@ export interface TripCardScheduleEntry {
   waitMinutes: number;
   status: TripStatus;
   departureClock: string;
+  // Present (true) only when staff cancelled this run (Phase L3).
+  cancelled?: boolean;
   // Bus-buffered early/late arrival window, already formatted 12-hour.
   predictedArrivalRange: { early: string; late: string } | null;
 }
@@ -44,6 +46,7 @@ export default function TripStatusCard({
   positionUpdatedAt,
   positionConfident,
   schedule,
+  serviceNote,
   pickupLabel,
   destinationLabel,
   totalDurationSeconds,
@@ -57,6 +60,10 @@ export default function TripStatusCard({
   positionUpdatedAt: string | null;
   positionConfident: boolean | null;
   schedule: TripCardScheduleEntry[];
+  // The staff-written "why service changed" message (Phase L3) — the whole
+  // point of the cancel/replace feature for customers, so it renders
+  // prominently on the card, never buried in the collapsed schedule.
+  serviceNote?: string | null;
   pickupLabel: string;
   destinationLabel: string;
   totalDurationSeconds: number;
@@ -74,18 +81,27 @@ export default function TripStatusCard({
 
   // selectActiveScheduleEntry returns an element of the array it was
   // given, so the richer card entry type survives the narrower signature.
-  const active = selectActiveScheduleEntry(
-    schedule,
-    totalDurationSeconds,
-    now,
-  ) as TripCardScheduleEntry;
+  // Null only for an emptied assignment (all runs moved by an L1 replace);
+  // when every run is cancelled it returns the last one WITH its cancelled
+  // flag — a display anchor, not a live run.
+  const active =
+    schedule.length > 0
+      ? (selectActiveScheduleEntry(
+          schedule,
+          totalDurationSeconds,
+          now,
+        ) as TripCardScheduleEntry)
+      : null;
   // Recomputed against the ticking clock (not the fetch-time status field)
   // so the emphasized block appears/disappears between polls.
-  const activeStatus = getTripStatus(
-    active.arrivalTime,
-    active.waitMinutes * 60 + totalDurationSeconds,
-    now,
-  );
+  const activeStatus = active
+    ? getTripStatus(
+        active.arrivalTime,
+        active.waitMinutes * 60 + totalDurationSeconds,
+        now,
+      )
+    : null;
+  const activeCancelled = active?.cancelled === true;
   const uncertain = positionConfident === false;
 
   return (
@@ -134,26 +150,65 @@ export default function TripStatusCard({
         </button>
       </div>
 
+      {/* The service note, front and center — the customer shouldn't have
+          to expand anything to learn their vehicle isn't coming. */}
+      {serviceNote && (
+        <div
+          className="mt-2 rounded-lg p-3"
+          style={{
+            background:
+              'color-mix(in srgb, var(--color-alert) 10%, transparent)',
+          }}
+        >
+          <p className="text-xs font-medium uppercase tracking-wider">
+            Service update
+          </p>
+          <p className="mt-0.5 text-sm">{serviceNote}</p>
+        </div>
+      )}
+
       {/* Pickup arrival/departure from the ACTIVE run. With no live
           position the pickup time is still known, but nothing is actually
-          tracking it — "Scheduled", not "Arrives". */}
-      <p className="mt-2 text-sm">
-        {hasPosition ? 'Arrives' : 'Scheduled:'} {pickupLabel} at{' '}
-        <span className="font-medium">
-          {formatClock12Hour(active.arrivalTime)}
-        </span>
-        {/* The confidence tag sits beside the predicted time when the
-            emphasized block is shown; when it isn't, beside this time. */}
-        {hasPosition &&
-          uncertain &&
-          !(activeStatus === 'in-progress' && active.predictedArrivalRange) && (
-            <ApproximateTag />
-          )}
-      </p>
-      {active.waitMinutes > 0 && (
-        <p className="mt-0.5 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-          Departs at {formatClock12Hour(active.departureClock)}
+          tracking it — "Scheduled", not "Arrives". A cancelled anchor run
+          (every run cancelled) or an emptied schedule (all runs replaced
+          away) gets a calm plain statement instead — never an "Arrives"
+          line for a bus that isn't coming. */}
+      {active === null ? (
+        <p className="mt-2 text-sm">
+          No more runs scheduled for this vehicle.
         </p>
+      ) : activeCancelled ? (
+        <p className="mt-2 text-sm">
+          The{' '}
+          <span className="font-medium">
+            {formatClock12Hour(active.arrivalTime)}
+          </span>{' '}
+          pickup at {pickupLabel} is cancelled.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-sm">
+            {hasPosition ? 'Arrives' : 'Scheduled:'} {pickupLabel} at{' '}
+            <span className="font-medium">
+              {formatClock12Hour(active.arrivalTime)}
+            </span>
+            {/* The confidence tag sits beside the predicted time when the
+                emphasized block is shown; when it isn't, beside this time. */}
+            {hasPosition &&
+              uncertain &&
+              !(
+                activeStatus === 'in-progress' && active.predictedArrivalRange
+              ) && <ApproximateTag />}
+          </p>
+          {active.waitMinutes > 0 && (
+            <p
+              className="mt-0.5 text-sm"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              Departs at {formatClock12Hour(active.departureClock)}
+            </p>
+          )}
+        </>
       )}
       {!hasPosition && (
         <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
@@ -161,10 +216,13 @@ export default function TripStatusCard({
         </p>
       )}
 
-      {/* The emphasized predicted-arrival block: ONLY for a run currently
-          in progress on a live vehicle — upcoming and fully-done vehicles
-          don't get a big number that isn't happening right now. */}
+      {/* The emphasized predicted-arrival block: ONLY for a real
+          (non-cancelled) run currently in progress on a live vehicle —
+          upcoming, fully-done, and cancelled runs don't get a big number
+          that isn't happening right now. */}
       {hasPosition &&
+        active !== null &&
+        !activeCancelled &&
         activeStatus === 'in-progress' &&
         active.predictedArrivalRange && (
           <div
@@ -197,33 +255,42 @@ export default function TripStatusCard({
         )}
 
       {/* Collapsed by default, always — the block above already surfaces an
-          in-progress run without expanding. */}
-      <button
-        type="button"
-        onClick={() => setScheduleOpen((open) => !open)}
-        aria-expanded={scheduleOpen}
-        className="mt-3 flex w-full items-center justify-between rounded-md py-2 text-sm"
-        style={{ color: 'var(--color-text-muted)' }}
-      >
-        Today&apos;s schedule
-        <ChevronDown
-          size={16}
-          className={scheduleOpen ? 'rotate-180 transition-transform' : 'transition-transform'}
-        />
-      </button>
-      {scheduleOpen && (
-        <ScheduleTimeline
-          schedule={schedule.map((entry) => entry.arrivalTime)}
-          durationSeconds={totalDurationSeconds}
-          extraSecondsPerEntry={schedule.map(
-            (entry) => entry.waitMinutes * 60,
+          in-progress run without expanding. An emptied schedule renders no
+          toggle at all: there is nothing behind it. */}
+      {schedule.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setScheduleOpen((open) => !open)}
+            aria-expanded={scheduleOpen}
+            className="mt-3 flex w-full items-center justify-between rounded-md py-2 text-sm"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Today&apos;s schedule
+            <ChevronDown
+              size={16}
+              className={scheduleOpen ? 'rotate-180 transition-transform' : 'transition-transform'}
+            />
+          </button>
+          {scheduleOpen && (
+            <ScheduleTimeline
+              schedule={schedule.map((entry) => entry.arrivalTime)}
+              durationSeconds={totalDurationSeconds}
+              extraSecondsPerEntry={schedule.map(
+                (entry) => entry.waitMinutes * 60,
+              )}
+              // Rows keep a single time (the early end) — the full range
+              // lives in the emphasized block above, not in every schedule
+              // row.
+              predictedArrivals={schedule.map(
+                (entry) => entry.predictedArrivalRange?.early ?? null,
+              )}
+              cancelledEntries={schedule.map(
+                (entry) => entry.cancelled === true,
+              )}
+            />
           )}
-          // Rows keep a single time (the early end) — the full range lives
-          // in the emphasized block above, not in every schedule row.
-          predictedArrivals={schedule.map(
-            (entry) => entry.predictedArrivalRange?.early ?? null,
-          )}
-        />
+        </>
       )}
     </section>
   );

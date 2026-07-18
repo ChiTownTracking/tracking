@@ -11,8 +11,9 @@ function entry(
   id: string,
   arrivalTime: string,
   waitMinutes = 10,
+  cancelled = false,
 ): ScheduleEntry {
-  return { id, arrivalTime, waitMinutes };
+  return { id, arrivalTime, waitMinutes, ...(cancelled ? { cancelled } : {}) };
 }
 
 describe('selectActiveScheduleEntry', () => {
@@ -54,6 +55,71 @@ describe('selectActiveScheduleEntry', () => {
       selectActiveScheduleEntry(schedule, TRIP_DURATION_SECONDS, NOON_CHICAGO)
         .id,
     ).toBe('second');
+  });
+
+  // The Phase L3 core regression: a cancelled run is not a real run, so
+  // its clock window means nothing — a cancelled 11:30 must never read as
+  // "in progress" at noon just because the clock says so.
+  it('a cancelled run is NEVER selected as in-progress, even inside its own clock window', () => {
+    // Without the cancelled flag, 11:30 would win as in-progress (the
+    // first test above proves exactly that).
+    const schedule = [
+      entry('morning', '09:00'),
+      entry('midday-cancelled', '11:30', 10, true),
+      entry('afternoon', '14:00'),
+    ];
+
+    expect(
+      selectActiveScheduleEntry(schedule, TRIP_DURATION_SECONDS, NOON_CHICAGO)
+        .id,
+    ).toBe('afternoon');
+  });
+
+  it('a cancelled run is skipped for next-upcoming in favor of a later real run', () => {
+    // Nothing in progress; 13:00 is the sooner upcoming but cancelled.
+    const schedule = [
+      entry('cancelled-sooner', '13:00', 10, true),
+      entry('real-later', '15:00'),
+    ];
+
+    expect(
+      selectActiveScheduleEntry(schedule, TRIP_DURATION_SECONDS, NOON_CHICAGO)
+        .id,
+    ).toBe('real-later');
+  });
+
+  it('the all-done fallback prefers the last REAL run over a later cancelled one', () => {
+    // Both real runs completed; the 16:00 cancellation must not become the
+    // dwell-attribution target just because it sorts last.
+    const schedule = [
+      entry('first', '07:00'),
+      entry('second', '08:30'),
+      entry('cancelled-later', '16:00', 10, true),
+    ];
+
+    expect(
+      selectActiveScheduleEntry(
+        schedule,
+        TRIP_DURATION_SECONDS,
+        new Date('2026-07-17T23:30:00Z'), // 18:30 Chicago — 16:00 window over too
+      ).id,
+    ).toBe('second');
+  });
+
+  it('when EVERY run is cancelled, the last one is returned as a display anchor, flag intact', () => {
+    const schedule = [
+      entry('c1', '09:00', 10, true),
+      entry('c2', '14:00', 0, true),
+    ];
+
+    const selected = selectActiveScheduleEntry(
+      schedule,
+      TRIP_DURATION_SECONDS,
+      NOON_CHICAGO,
+    );
+    expect(selected.id).toBe('c2');
+    // Callers rely on the flag to know this is not a live run.
+    expect(selected.cancelled).toBe(true);
   });
 
   it('a single-entry schedule trivially returns that entry in every state', () => {

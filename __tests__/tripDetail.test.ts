@@ -267,6 +267,95 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(detail.vehicles[0].stopEtas).toHaveLength(2);
   });
 
+  // Phase L3: cancelled runs and service notes reach the public shape —
+  // and a cancelled run stops being treated as a real one.
+  it('passes serviceNote through when present and omits it entirely when absent', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+    const tripWithNote: Trip = {
+      ...TRIP,
+      vehicles: [
+        { ...TRIP.vehicles[0], serviceNote: 'Bus swapped for maintenance' },
+        TRIP.vehicles[1],
+      ],
+    };
+
+    const detail = await buildTripDetailResponse(tripWithNote);
+
+    expect(detail.vehicles[0].serviceNote).toBe('Bus swapped for maintenance');
+    expect(detail.vehicles[1]).not.toHaveProperty('serviceNote');
+  });
+
+  it('marks cancelled runs (flag present only when true) and strips their prediction', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveVehicle('1000067169', 41.005, 12),
+    ]);
+    const tripWithCancellation: Trip = {
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          serviceNote: 'Trolley out of service today',
+          schedule: [
+            { id: 'run-done', arrivalTime: '09:00', waitMinutes: 10 },
+            // The ONLY still-relevant run, cancelled — and inside what
+            // would be its in-progress window at noon, with a stored
+            // prediction that must NOT surface.
+            {
+              id: 'run-cancelled',
+              arrivalTime: '11:55',
+              waitMinutes: 10,
+              cancelled: true,
+              predictedArrivalDurationSeconds: 1061,
+              predictedArrivalStaticDurationSeconds: 1332,
+            },
+          ],
+        },
+      ],
+    };
+
+    const detail = await buildTripDetailResponse(tripWithCancellation);
+
+    // The FULL schedule still comes back, accurately flagged.
+    const [done, cancelled] = detail.vehicles[0].schedule;
+    expect(detail.vehicles[0].schedule).toHaveLength(2);
+    expect(done).not.toHaveProperty('cancelled');
+    expect(cancelled.cancelled).toBe(true);
+    // No prediction for a run that isn't happening — nothing for the
+    // card's emphasized block to render.
+    expect(cancelled.predictedArrivalRange).toBeNull();
+    // The raw stored values still never leak.
+    expect(cancelled).not.toHaveProperty('predictedArrivalDurationSeconds');
+    expect(detail.vehicles[0].serviceNote).toBe(
+      'Trolley out of service today',
+    );
+  });
+
+  // An L1 replace can leave an assignment with zero runs; the public
+  // response must survive that (zero dwell, empty schedule), live position
+  // or not.
+  it('handles a live vehicle whose schedule was fully replaced away (empty schedule)', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveVehicle('1000067169', 41.005, 12),
+    ]);
+    const tripReplacedAway: Trip = {
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [],
+          serviceNote: 'Replaced by a spare vehicle',
+        },
+      ],
+    };
+
+    const detail = await buildTripDetailResponse(tripReplacedAway);
+
+    expect(detail.vehicles[0].schedule).toEqual([]);
+    expect(detail.vehicles[0].serviceNote).toBe('Replaced by a spare vehicle');
+    // Live fields still honest — the vehicle exists and reports.
+    expect(detail.vehicles[0].position).not.toBeNull();
+  });
+
   it('exposes the trip essentials without the token', async () => {
     vi.mocked(getLiveVehicles).mockResolvedValue([]);
 

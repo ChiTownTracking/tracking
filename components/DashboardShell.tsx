@@ -36,6 +36,11 @@ export default function DashboardShell({
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
     null,
   );
+  // Phase N1: below md the fixed 320px sidebar left the map a ~55px sliver,
+  // so narrow widths get a full-width Map/List toggle instead. Both panes
+  // stay MOUNTED (hidden via classes) so the map camera and the sidebar's
+  // search/selection survive switching. Ignored from md up.
+  const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
   const {
     data: vehicles,
     error,
@@ -70,13 +75,44 @@ export default function DashboardShell({
   }
 
   return (
-    <div className="flex h-full">
-      <aside className="flex w-[320px] shrink-0 flex-col bg-panel">
+    <div className="flex h-full flex-col md:flex-row">
+      {/* Narrow-width pane switcher — same segmented-control styling as
+          FleetMap's Dark/Light toggle. */}
+      <div className="flex shrink-0 justify-center p-2 md:hidden">
+        <div className="flex overflow-hidden rounded-md bg-panel text-xs shadow-md">
+          {(['map', 'list'] as const).map((view) => (
+            <button
+              key={view}
+              type="button"
+              onClick={() => setMobileView(view)}
+              aria-pressed={mobileView === view}
+              className="px-4 py-1.5 font-medium"
+              style={
+                mobileView === view
+                  ? { background: 'var(--color-accent)', color: '#ffffff' }
+                  : { color: 'var(--color-text-muted)' }
+              }
+            >
+              {view === 'map' ? 'Map' : `Vehicles (${vehicles.length})`}
+            </button>
+          ))}
+        </div>
+      </div>
+      <aside
+        className={`${
+          mobileView === 'list' ? 'flex' : 'hidden'
+        } min-h-0 w-full flex-1 flex-col bg-panel md:flex md:w-[320px] md:flex-none md:shrink-0`}
+      >
         <div className="min-h-0 flex-1">
           <VehicleSidebar
             vehicles={vehicles}
             selectedVehicleId={selectedVehicleId}
-            onSelect={setSelectedVehicleId}
+            onSelect={(vehicleId) => {
+              setSelectedVehicleId(vehicleId);
+              // Picking a vehicle on a phone means "show me it" — jump to
+              // the map pane the selection just moved.
+              setMobileView('map');
+            }}
           />
         </div>
         <div className="shrink-0 border-t border-white/10 p-3">
@@ -90,7 +126,11 @@ export default function DashboardShell({
           </button>
         </div>
       </aside>
-      <div className="min-w-0 flex-1">
+      <div
+        className={`${
+          mobileView === 'map' ? 'block' : 'hidden'
+        } min-h-0 min-w-0 flex-1 md:block`}
+      >
         <FleetMap vehicles={vehicles} selectedVehicleId={selectedVehicleId} />
       </div>
     </div>

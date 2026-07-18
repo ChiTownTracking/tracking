@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { Locate, MapPin } from 'lucide-react';
+import { Locate, MapPin, Route as RouteIcon } from 'lucide-react';
 // Map aliased: this component also uses the plain JS Map for routeNameById,
 // which vis.gl's <Map> import would otherwise shadow.
 import {
@@ -73,6 +73,25 @@ function boardPoints(
   return points;
 }
 
+// The route alone: every route's geometry plus its waypoint coordinates,
+// with every vehicle position deliberately excluded — the "Center on
+// route" action exists precisely to see the route clearly even when a
+// vehicle is far outside it.
+function routeOnlyPoints(
+  routes: BoardRouteSummary[],
+): { lat: number; lng: number }[] {
+  const points: { lat: number; lng: number }[] = [];
+  for (const route of routes) {
+    for (const [lat, lng] of route.geometry) {
+      points.push({ lat, lng });
+    }
+    for (const stop of route.stops) {
+      points.push({ lat: stop.lat, lng: stop.lng });
+    }
+  }
+  return points;
+}
+
 // TrackMap's single-vehicle centering zoom, reused for the per-trip Center
 // action here.
 const FOCUS_ZOOM = 14;
@@ -85,12 +104,16 @@ const FOCUS_ZOOM = 14;
 // first data, then only on explicit clicks — a manual pan is never fought.
 function ViewController({
   points,
+  routePoints,
   recenterSeq,
+  routeFitSeq,
   focusSeq,
   focusPosition,
 }: {
   points: { lat: number; lng: number }[];
+  routePoints: { lat: number; lng: number }[];
   recenterSeq: number;
+  routeFitSeq: number;
   focusSeq: number;
   focusPosition: { lat: number; lng: number } | null;
 }) {
@@ -116,6 +139,10 @@ function ViewController({
   useEffect(() => {
     pointsRef.current = points;
   }, [points]);
+  const routePointsRef = useRef(routePoints);
+  useEffect(() => {
+    routePointsRef.current = routePoints;
+  }, [routePoints]);
   const focusPositionRef = useRef(focusPosition);
   useEffect(() => {
     focusPositionRef.current = focusPosition;
@@ -127,6 +154,14 @@ function ViewController({
     }
     fitBoundsRespectingReducedMotion(map, pointsRef.current, FIT_PADDING);
   }, [recenterSeq, map]);
+
+  // "Center on route": the same one-shot fit, over the route-only points.
+  useEffect(() => {
+    if (!map || routeFitSeq === 0 || routePointsRef.current.length === 0) {
+      return;
+    }
+    fitBoundsRespectingReducedMotion(map, routePointsRef.current, FIT_PADDING);
+  }, [routeFitSeq, map]);
 
   useEffect(() => {
     const position = focusPositionRef.current;
@@ -267,8 +302,10 @@ export default function BoardMap({
   onClearFocus: () => void;
 }) {
   const [recenterSeq, setRecenterSeq] = useState(0);
+  const [routeFitSeq, setRouteFitSeq] = useState(0);
   const routeNameById = new Map(routes.map((route) => [route.id, route.name]));
   const points = boardPoints(routes, trips);
+  const routePoints = routeOnlyPoints(routes);
 
   const focusedTrip = focusCommand
     ? trips.find((trip) => trip.id === focusCommand.tripId)
@@ -358,28 +395,54 @@ export default function BoardMap({
         })}
         <ViewController
           points={points}
+          routePoints={routePoints}
           recenterSeq={recenterSeq}
+          routeFitSeq={routeFitSeq}
           focusSeq={focusCommand?.seq ?? 0}
           focusPosition={focusPosition}
         />
       </GoogleMap>
-      <button
-        type="button"
-        onClick={() => {
-          // Fit-everything is the reset: it also clears any per-trip focus.
-          onClearFocus();
-          setRecenterSeq((seq) => seq + 1);
-        }}
-        aria-label="Re-center map on all routes and vehicles"
-        title="Re-center map"
-        className="absolute right-3 top-3 z-[1000] rounded-md p-2 shadow-md"
-        style={{
-          background: 'var(--color-panel)',
-          color: 'var(--color-text)',
-        }}
-      >
-        <Locate size={16} />
-      </button>
+      {/* Compact icon buttons, deliberately not a wide labeled segmented
+          control (the mobile audit's finding on TrackMap's equivalent). */}
+      <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            // Fit-everything is the reset: it also clears any per-trip
+            // focus.
+            onClearFocus();
+            setRecenterSeq((seq) => seq + 1);
+          }}
+          aria-label="Re-center map on all routes and vehicles"
+          title="Re-center map"
+          className="rounded-md p-2 shadow-md"
+          style={{
+            background: 'var(--color-panel)',
+            color: 'var(--color-text)',
+          }}
+        >
+          <Locate size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            // One-shot fit of the route alone — vehicle positions are
+            // deliberately ignored. A view reset like fit-everything, so it
+            // clears any per-trip focus the same way.
+            onClearFocus();
+            setRouteFitSeq((seq) => seq + 1);
+          }}
+          aria-label="Center map on the route"
+          title="Center on route"
+          className="rounded-md p-2 shadow-md"
+          style={{
+            background: 'var(--color-panel)',
+            color: 'var(--color-text)',
+          }}
+        >
+          <RouteIcon size={16} />
+        </button>
+      </div>
     </div>
   );
 }

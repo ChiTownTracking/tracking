@@ -29,13 +29,22 @@ export interface ScheduleEntry {
   // together with predictedArrivalDurationSeconds (one Google response
   // carries both).
   predictedArrivalStaticDurationSeconds?: number;
+  // Phase L1: true = this run was cancelled by staff. Absent means normal
+  // — never store false explicitly, same absent-means-default convention
+  // as every optional field in this file.
+  cancelled?: boolean;
 }
 
-// One vehicle's runs on this trip — always at least one entry (enforced at
-// the API layer).
+// One vehicle's runs on this trip — always at least one entry at CREATION
+// (enforced at the API layer). Phase L1's replace flow can later leave an
+// assignment with an empty schedule: the assignment stays as the history
+// record (and serviceNote holder) for runs that already happened on it.
 export interface VehicleAssignment {
   vehicleId: string;
   schedule: ScheduleEntry[];
+  // Phase L1: staff-facing explanation attached by cancel/replace ("bus
+  // broke down", "swapped for maintenance"). Absent when never set.
+  serviceNote?: string;
 }
 
 export interface Trip {

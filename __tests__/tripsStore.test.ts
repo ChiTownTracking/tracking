@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Trip } from '@/lib/trips';
 import {
   createTrip,
+  deleteTrip,
   getTrip,
   getTripByToken,
   listTrips,
@@ -142,5 +143,48 @@ describe('tripsStore', () => {
 
     const listed = await listTrips();
     expect(listed.map((t) => t.id).sort()).toEqual(['trip-1', 'trip-2']);
+  });
+
+  // Phase M1: deletion removes ALL THREE writes creation made — document,
+  // listing membership, token reverse index.
+  it('deleteTrip removes the document, the listing entry, AND the token lookup', async () => {
+    const doomed = makeTrip('trip-1', {
+      token: 'a1b2c3d4-1111-4222-8333-abcdefabcdef',
+    });
+    await createTrip(doomed);
+    await createTrip(makeTrip('trip-2', { name: 'South Shore Run' }));
+
+    await deleteTrip('trip-1');
+
+    expect(await getTrip('trip-1')).toBeNull();
+    expect((await listTrips()).map((t) => t.id)).toEqual(['trip-2']);
+    // The real regression: the token reverse index must be cleaned up too,
+    // not orphaned — an orphaned key would keep the public /trip link
+    // resolving (or dangling) after the trip is gone.
+    expect(
+      await getTripByToken('a1b2c3d4-1111-4222-8333-abcdefabcdef'),
+    ).toBeNull();
+    // The survivor's token lookup is untouched.
+    expect((await getTripByToken('trip-2-token'))?.id).toBe('trip-2');
+  });
+
+  it('deleteTrip is a silent no-op for an unknown id, disturbing nothing', async () => {
+    await createTrip(makeTrip('trip-1'));
+
+    await expect(deleteTrip('no-such-trip')).resolves.toBeUndefined();
+
+    expect((await getTrip('trip-1'))?.id).toBe('trip-1');
+    expect((await listTrips()).map((t) => t.id)).toEqual(['trip-1']);
+    expect((await getTripByToken('trip-1-token'))?.id).toBe('trip-1');
+  });
+
+  it('deleting twice is as safe as deleting once', async () => {
+    await createTrip(makeTrip('trip-1'));
+
+    await deleteTrip('trip-1');
+    await expect(deleteTrip('trip-1')).resolves.toBeUndefined();
+
+    expect(await getTrip('trip-1')).toBeNull();
+    expect(await listTrips()).toEqual([]);
   });
 });

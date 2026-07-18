@@ -34,16 +34,20 @@ export default function DashboardPage() {
   ).length;
 
   return (
-    <div className="flex h-screen flex-col bg-bg text-text">
+    // h-dvh, not h-screen: 100vh sits under the dynamic browser toolbar on
+    // iOS/Android and clipped the sidebar's bottom (Phase N1).
+    <div className="flex h-dvh flex-col bg-bg text-text">
       <header className="flex shrink-0 items-center justify-between gap-4 bg-panel px-4 py-2">
-        <div className="flex items-center gap-6">
-          <h1 className="font-heading text-lg font-medium">
+        <div className="flex min-w-0 items-center gap-6">
+          <h1 className="min-w-0 truncate font-heading text-lg font-medium">
             ChiTown Tracking — Fleet Dispatch
           </h1>
           <DashboardNav />
         </div>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-sm text-text-muted">
+        <div className="flex shrink-0 items-center gap-4">
+          {/* Redundant at phone widths — the sidebar's section counts show
+              the same numbers — and the header has no room for it there. */}
+          <span className="hidden font-mono text-sm text-text-muted lg:inline">
             {vehicles.length} vehicles · {moving} moving
           </span>
           <button

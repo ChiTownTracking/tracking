@@ -50,6 +50,8 @@ interface TripVehicleDetail {
   speedMph: number | null;
   nextStopIndex: number | null;
   stopEtas: { arrival: string | null; departure: string | null }[] | null;
+  // Present only when staff attached one via cancel/replace (Phase L3).
+  serviceNote?: string;
   schedule: TripCardScheduleEntry[];
 }
 
@@ -180,6 +182,7 @@ export default function TripPage() {
                 positionUpdatedAt={vehicle.positionUpdatedAt}
                 positionConfident={vehicle.positionConfident}
                 schedule={vehicle.schedule}
+                serviceNote={vehicle.serviceNote ?? null}
                 pickupLabel={stopLabels[0] ?? 'the first stop'}
                 destinationLabel={
                   stopLabels[stopLabels.length - 1] ?? 'the final stop'

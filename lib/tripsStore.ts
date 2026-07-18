@@ -25,6 +25,30 @@ export async function createTrip(trip: Trip): Promise<void> {
   await client.set(tripTokenKey(trip.token), trip.id);
 }
 
+// Phase L1: update-in-place for an existing trip (cancel/replace edits).
+// Overwrites ONLY the trip document — the id set and the token reverse
+// index are keyed on values that never change after creation, so neither
+// needs touching here.
+export async function saveTrip(trip: Trip): Promise<void> {
+  await getRedis().set(tripKey(trip.id), trip);
+}
+
+// Phase M1: full removal — the document, its id-set membership (so
+// listTrips stops returning it), AND the token reverse index, which is
+// only discoverable through the document itself, so it's read first. A
+// missing id is a silent no-op: deleting something already gone is not an
+// error.
+export async function deleteTrip(id: string): Promise<void> {
+  const client = getRedis();
+  const trip = await client.get<Trip>(tripKey(id));
+  if (trip === null) {
+    return;
+  }
+  await client.del(tripKey(id));
+  await client.srem(TRIP_SET_KEY, id);
+  await client.del(tripTokenKey(trip.token));
+}
+
 export async function getTrip(id: string): Promise<Trip | null> {
   return await getRedis().get<Trip>(tripKey(id));
 }
