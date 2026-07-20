@@ -124,6 +124,13 @@ function followVehicles(map: google.maps.Map, vehicles: Vehicle[]) {
 
 type CenterMode = 'vehicle' | 'route';
 
+// Phase N2: a route-centered view is the more useful default whenever a
+// route actually exists — the Vehicle fallback only applies to a
+// no-routes link, where there is nothing else to center on.
+function defaultCenterMode(route: StoredRoute | null): CenterMode {
+  return route ? 'route' : 'vehicle';
+}
+
 // A recenter request: the seq bump triggers it, the mode is snapshotted at
 // click time so a later poll can't reinterpret it.
 interface RecenterCommand {
@@ -185,9 +192,11 @@ function ViewController({
     return () => listener.remove();
   }, [map]);
 
-  // Fresh-view centering, fitting whichever mode is active: on first mount
-  // that is always Vehicle (the default), but a tab switch while in Route
-  // mode should fit the NEW route's bounds, not jump to the vehicle.
+  // Fresh-view centering, fitting whichever mode is active — Route
+  // whenever a route exists (Phase N2's default), Vehicle only for a
+  // no-routes link. centerMode is already correct by the time this runs:
+  // the parent recomputes it during render on a routeIndex change, before
+  // this same commit's effects fire (see TrackMapContent).
   useEffect(() => {
     if (!map || hasCenteredInitially.current) {
       return;
@@ -438,7 +447,24 @@ export function TrackMapContent({
   route: StoredRoute | null;
   schedule: string[] | null;
 }) {
-  const [centerMode, setCenterMode] = useState<CenterMode>('vehicle');
+  const [centerMode, setCenterMode] = useState<CenterMode>(() =>
+    defaultCenterMode(route),
+  );
+  // Route switches (tab-switching, cached case) are a fresh view, same as
+  // ViewController's own hasCenteredInitially/followSuspended reset — the
+  // default mode should be recomputed, not leave whatever mode the
+  // previous route was left in. This is done DURING RENDER (React's
+  // documented "adjusting state when a prop changes" pattern), not in a
+  // useEffect: an effect-based reset lands one render later than
+  // ViewController's own reset effect (a child, so its effects flush
+  // first), so it would read the STALE centerMode on its first pass, fit
+  // the wrong mode, flip hasCenteredInitially true, and then never
+  // correct once the real reset arrives a render late.
+  const [centerModeRouteIndex, setCenterModeRouteIndex] = useState(routeIndex);
+  if (centerModeRouteIndex !== routeIndex) {
+    setCenterModeRouteIndex(routeIndex);
+    setCenterMode(defaultCenterMode(route));
+  }
   const [recenterCommand, setRecenterCommand] =
     useState<RecenterCommand | null>(null);
 

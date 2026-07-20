@@ -7,6 +7,10 @@ import DashboardNav from '@/components/DashboardNav';
 import { fieldInputClass } from '@/components/formStyles';
 import StopListEditor, { type StopEntry } from '@/components/StopListEditor';
 import VehiclePicker from '@/components/VehiclePicker';
+import {
+  defaultWindowEnd,
+  defaultWindowStart,
+} from '@/lib/datetimeLocalDefault';
 import type { RosterVehicle } from '@/lib/vehicleRoster';
 import { redirectIfSessionExpired } from '@/lib/sessionExpiry';
 import { useTheme } from '@/lib/useTheme';
@@ -83,11 +87,21 @@ function computeDeparture(arrivalTime: string, waitRaw: string): string | null {
 // silently disabled button.
 function findBlocker(
   name: string,
+  windowStart: string,
+  windowEnd: string,
   stops: StopEntry[],
   vehicles: VehicleBlock[],
 ): string | null {
   if (name.trim().length === 0) {
     return 'The trip needs a name.';
+  }
+  if (windowStart === '' || windowEnd === '') {
+    return 'Set a tracking window (start and end).';
+  }
+  // Same end-after-start rule the server's schema enforces (and create-link
+  // mirrors client-side).
+  if (new Date(windowEnd).getTime() <= new Date(windowStart).getTime()) {
+    return 'Window end must be after window start.';
   }
   if (stops.some((stop) => stop.resolved === null)) {
     return 'Every stop must be confirmed to a location (or removed) before saving.';
@@ -131,6 +145,11 @@ export default function NewTripPage() {
     useSWR('/api/internal/roster', fetchJson<RosterVehicle[]>);
 
   const [name, setName] = useState('');
+  // Lazy initializers: "now" through "now + 7 days" computed once at mount,
+  // in the render that creates the state — never a useEffect that could
+  // re-run and clobber a manual edit. Same pattern as create-link.
+  const [windowStart, setWindowStart] = useState(defaultWindowStart);
+  const [windowEnd, setWindowEnd] = useState(() => defaultWindowEnd(24 * 7));
   const [stops, setStops] = useState<StopEntry[]>([]);
   // Start with one open vehicle block — the form's whole point is
   // assigning at least one vehicle.
@@ -142,7 +161,7 @@ export default function NewTripPage() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const blocker = findBlocker(name, stops, vehicles);
+  const blocker = findBlocker(name, windowStart, windowEnd, stops, vehicles);
 
   function updateBlock(key: string, patch: Partial<VehicleBlock>) {
     setVehicles((current) =>
@@ -179,6 +198,10 @@ export default function NewTripPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
+          // datetime-local values are timezone-less; normalize to UTC ISO
+          // so the server stores an absolute window (same as create-link).
+          windowStart: new Date(windowStart).toISOString(),
+          windowEnd: new Date(windowEnd).toISOString(),
           // Search state stays client-side; only the confirmed essentials
           // are submitted.
           waypoints: stops.flatMap((stop) =>
@@ -256,6 +279,44 @@ export default function NewTripPage() {
               className={fieldInputClass}
             />
           </label>
+
+          <div>
+            <span className="mb-1.5 block text-sm text-text-muted">
+              Tracking window
+            </span>
+            <p className="mb-2 text-xs text-text-muted">
+              When the public trip link is live — before it starts and after
+              it ends, the link shows a status message instead of the map.
+            </p>
+            {/* Stacked below sm: datetime-local inputs have a large intrinsic
+                min-width and can't share a 375px row. */}
+            <div className="flex flex-col gap-4 sm:flex-row">
+              <label className="block flex-1">
+                <span className="mb-1.5 block text-sm text-text-muted">
+                  Window start
+                </span>
+                <input
+                  type="datetime-local"
+                  value={windowStart}
+                  onChange={(event) => setWindowStart(event.target.value)}
+                  required
+                  className={fieldInputClass}
+                />
+              </label>
+              <label className="block flex-1">
+                <span className="mb-1.5 block text-sm text-text-muted">
+                  Window end
+                </span>
+                <input
+                  type="datetime-local"
+                  value={windowEnd}
+                  onChange={(event) => setWindowEnd(event.target.value)}
+                  required
+                  className={fieldInputClass}
+                />
+              </label>
+            </div>
+          </div>
 
           <div>
             <span className="mb-1.5 block text-sm text-text-muted">Stops</span>

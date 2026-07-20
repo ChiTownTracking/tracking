@@ -157,6 +157,10 @@ export async function POST(request: Request) {
       // tokens.
       token: crypto.randomUUID(),
       name: parsed.data.name,
+      // Phase N3: the validated active window (windowEnd > windowStart,
+      // enforced by the schema).
+      windowStart: parsed.data.windowStart,
+      windowEnd: parsed.data.windowEnd,
       waypoints: parsed.data.waypoints,
       geometry: result.geometry,
       // Explicitly strip each leg's geometry: Trip.legs stores timings only,

@@ -7,6 +7,10 @@ import DashboardNav from '@/components/DashboardNav';
 import { fieldInputClass } from '@/components/formStyles';
 import StopListEditor, { type StopEntry } from '@/components/StopListEditor';
 import VehiclePicker from '@/components/VehiclePicker';
+import {
+  defaultWindowEnd,
+  defaultWindowStart,
+} from '@/lib/datetimeLocalDefault';
 import type { RosterVehicle } from '@/lib/vehicleRoster';
 import { redirectIfSessionExpired } from '@/lib/sessionExpiry';
 import { useTheme } from '@/lib/useTheme';
@@ -96,8 +100,11 @@ export default function CreateLinkPage() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [vehicleQuery, setVehicleQuery] = useState('');
   const [customerName, setCustomerName] = useState('');
-  const [windowStart, setWindowStart] = useState('');
-  const [windowEnd, setWindowEnd] = useState('');
+  // Lazy initializers: "now" and "now + 12h" computed once, at mount, in
+  // the render that creates the state — never a useEffect that could
+  // re-run and clobber a manual edit later.
+  const [windowStart, setWindowStart] = useState(defaultWindowStart);
+  const [windowEnd, setWindowEnd] = useState(() => defaultWindowEnd(12));
   const [routes, setRoutes] = useState<RouteEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -126,8 +133,11 @@ export default function CreateLinkPage() {
         name: `Route ${String.fromCharCode(65 + (current.length % 26))}`,
         vehicleIds: new Set<string>(),
         vehicleQuery: '',
-        windowStart: '',
-        windowEnd: '',
+        // Computed at the moment THIS block is created (not page load), so
+        // a route added minutes into filling out the form starts near that
+        // real time.
+        windowStart: defaultWindowStart(),
+        windowEnd: defaultWindowEnd(12),
         stops: [],
         schedule: [],
       },

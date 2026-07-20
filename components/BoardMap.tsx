@@ -18,11 +18,13 @@ import { VehicleMarkerContent } from './VehicleMarkerIcon';
 
 // Phase J4c: rendering converted from react-leaflet/CARTO to
 // @vis.gl/react-google-maps, same conversion pattern as TrackMap (J4b).
-// This is the multi-vehicle SHARED view: fit-everything once on first data,
-// one-shot per-vehicle centering on click, and deliberately NO continuous
-// follow anywhere — auto-tracking one moving vehicle would fight anyone
-// watching a different one. Expects the page to wrap it in the ONE shared
-// GoogleMapsProvider; this component never creates its own.
+// This is the multi-vehicle SHARED view: route-centered once on first data
+// (Phase N2 — fit-everything-including-vehicles is now a manual button,
+// not the automatic initial view), one-shot per-vehicle centering on
+// click, and deliberately NO continuous follow anywhere — auto-tracking
+// one moving vehicle would fight anyone watching a different one. Expects
+// the page to wrap it in the ONE shared GoogleMapsProvider; this
+// component never creates its own.
 
 // The map's own prop contract — the /trip page adapts the public trip
 // detail into these shapes. The shape lives in one place client-side.
@@ -100,8 +102,9 @@ const FOCUS_ZOOM = 14;
 // several vehicles moving independently there's no one coherent "the"
 // vehicle to follow — even a focused trip is centered ONCE per click, never
 // followed on poll (continuous follow would fight anyone watching a
-// different vehicle on this shared view). Fit-everything happens once on
-// first data, then only on explicit clicks — a manual pan is never fought.
+// different vehicle on this shared view). The route-centered initial fit
+// happens once on first data, then only on explicit clicks (either button)
+// — a manual pan is never fought.
 function ViewController({
   points,
   routePoints,
@@ -123,13 +126,20 @@ function ViewController({
   // Bounds fits honor prefers-reduced-motion via the shared idle-snap
   // fitBounds (lib/mapCamera) — the J4d backport that closed the gap
   // parked at J4c.
+  //
+  // Phase N2: the initial view fits the ROUTE alone (same route-only
+  // bounds as the "Center on route" button below), not fit-everything —
+  // every trip always has a route, so there's no fallback case to
+  // consider. Fit-everything (the `points` prop, including vehicles)
+  // stays available as the manual button; it's just no longer what fires
+  // automatically.
   useEffect(() => {
-    if (!map || hasCenteredInitially.current || points.length === 0) {
+    if (!map || hasCenteredInitially.current || routePoints.length === 0) {
       return;
     }
-    fitBoundsRespectingReducedMotion(map, points, FIT_PADDING);
+    fitBoundsRespectingReducedMotion(map, routePoints, FIT_PADDING);
     hasCenteredInitially.current = true;
-  }, [points, map]);
+  }, [routePoints, map]);
 
   // Both click-driven moves read CURRENT data without re-triggering on
   // every poll: the targets live in refs (synced in effects — never written

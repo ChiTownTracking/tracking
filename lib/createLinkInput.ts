@@ -2,8 +2,9 @@ import { z } from 'zod';
 
 // Accepts ISO datetimes with an offset/Z or without one (the create-link form
 // normalizes datetime-local values to UTC ISO strings before submitting, but
-// the schema tolerates both).
-const isoDateTime = z.iso.datetime({ offset: true, local: true });
+// the schema tolerates both). Exported for reuse by the standalone Trip
+// schema (lib/tripInput.ts), which gained its own window fields in Phase N3.
+export const isoDateTime = z.iso.datetime({ offset: true, local: true });
 
 // One named stop on an optional route. Bounds are basic lat/lng sanity only —
 // regional scoping (Midwest bounding box) lives in orsClient, not here. The

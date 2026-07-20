@@ -53,6 +53,17 @@ export interface Trip {
   // entropy/generation as tracking-link tokens. Minted at creation.
   token: string;
   name: string;
+  // Phase N3: the trip-level active window (ISO datetimes) — bounds which
+  // DAYS the public /trip/[token] page is reachable, gated exactly like a
+  // tracking link's window (lib/trackingWindow). The daily-recurring run
+  // schedule is unchanged: this is the outer boundary, not a per-run time.
+  // OPTIONAL only for backward compatibility — pre-N3 trips predate these
+  // fields and have neither; every read site treats their absence as
+  // "always active" (no gating), the same pre-launch no-migration
+  // precedent used throughout. Required for all NEW trips (enforced at the
+  // API schema, not here).
+  windowStart?: string;
+  windowEnd?: string;
   // Plain label/lat/lng waypoints — see the ScheduleEntry note for why no
   // per-waypoint dwell exists anymore.
   waypoints: Waypoint[];

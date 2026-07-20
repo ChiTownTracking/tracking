@@ -71,8 +71,15 @@ const ROUTE_RESULT = {
 // What Trip actually stores for legs: timings only, leg geometry stripped.
 const STORED_LEGS = [{ distanceMeters: 9489.6, durationSeconds: 917.9 }];
 
+// Phase N3: creation now requires an active window (windowEnd > windowStart).
+const WINDOW = {
+  windowStart: '2026-07-20T14:00:00.000Z',
+  windowEnd: '2026-07-27T14:00:00.000Z',
+};
+
 const VALID_BODY = {
   name: 'North Shore Run',
+  ...WINDOW,
   waypoints: WAYPOINTS,
   vehicles: [
     {
@@ -114,6 +121,9 @@ describe('POST /api/internal/trips', () => {
     expect(createTrip).toHaveBeenCalledTimes(1);
     const stored = vi.mocked(createTrip).mock.calls[0][0];
     expect(stored.name).toBe('North Shore Run');
+    // Phase N3: the validated window is stored on the trip.
+    expect(stored.windowStart).toBe(WINDOW.windowStart);
+    expect(stored.windowEnd).toBe(WINDOW.windowEnd);
     expect(stored.waypoints).toEqual(WAYPOINTS);
     expect(stored.geometry).toEqual(ROUTE_RESULT.geometry);
     // Leg geometry is stripped before storing; boundary indices are derived
@@ -143,6 +153,7 @@ describe('POST /api/internal/trips', () => {
     const response = await POST(
       makeRequest({
         name: 'Two-Trolley Loop',
+        ...WINDOW,
         waypoints: WAYPOINTS,
         vehicles: [
           {
@@ -249,6 +260,12 @@ describe('POST /api/internal/trips', () => {
           },
         ],
       },
+      // Phase N3 window rules: missing, and end-not-after-start.
+      (() => {
+        const { windowStart: _s, ...noStart } = VALID_BODY;
+        return noStart;
+      })(),
+      { ...VALID_BODY, windowEnd: VALID_BODY.windowStart },
     ];
 
     for (const body of cases) {
@@ -268,6 +285,7 @@ describe('POST /api/internal/trips', () => {
     const response = await POST(
       makeRequest({
         name: 'Shared Departure Run',
+        ...WINDOW,
         waypoints: WAYPOINTS,
         vehicles: [
           {

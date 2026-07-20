@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { RedisRateLimiter } from '@/lib/rateLimiter';
 import { isUuidShaped } from '@/lib/trackingTokens';
+import { getWindowStatus, WINDOW_MESSAGES } from '@/lib/trackingWindow';
 import { buildTripDetailResponse } from '@/lib/tripDetail';
 import { getTripByToken } from '@/lib/tripsStore';
 
@@ -45,8 +46,24 @@ export async function GET(
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Everything lives on the trip itself now — no separate route to go
-    // missing, so a resolved token always yields a full response.
+    // Phase N3: gate on the trip's active window exactly like /track does.
+    // Pre-N3 trips have NO window fields — absence means "always active"
+    // (the no-migration backward-compat case): skip gating entirely and
+    // serve the full response as before. When both are present, the same
+    // getWindowStatus/WINDOW_MESSAGES the tracking-link endpoint uses
+    // decides — and, like /track, outside the window we return the minimal
+    // status-only shape and never touch the live/roster layer, so no
+    // vehicle or schedule data leaks before or after the window.
+    if (trip.windowStart !== undefined && trip.windowEnd !== undefined) {
+      const status = getWindowStatus(trip.windowStart, trip.windowEnd);
+      if (status === 'not_started' || status === 'ended') {
+        return Response.json({ status, message: WINDOW_MESSAGES[status] });
+      }
+    }
+
+    // In-window (or a pre-N3 always-active trip): everything lives on the
+    // trip itself now — no separate route to go missing, so a resolved
+    // token always yields a full response.
     return Response.json(await buildTripDetailResponse(trip));
   } catch (error) {
     console.error('trip detail route failed:', error);

@@ -50,6 +50,7 @@ vi.mock('@/lib/vehicleRoster', () => ({
 
 import { GET } from '@/app/api/public/trip/[token]/route';
 import { getLiveVehicles } from '@/lib/liveVehicles';
+import { WINDOW_MESSAGES } from '@/lib/trackingWindow';
 import { getTripByToken } from '@/lib/tripsStore';
 import { getVehicleRoster } from '@/lib/vehicleRoster';
 
@@ -195,6 +196,77 @@ describe('GET /api/public/trip/[token]', () => {
         expect(['upcoming', 'in-progress', 'completed']).toContain(run.status);
       }
     }
+  });
+
+  // Phase N3: the trip-level active window gates the public page exactly
+  // like /track. Windows are built relative to now so the cases stay
+  // time-robust without pinning the clock (getWindowStatus stays real).
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it('a trip with NO window fields serves full data, unchanged (backward-compat regression)', async () => {
+    // TRIP deliberately has no windowStart/windowEnd — the pre-N3 shape.
+    vi.mocked(getTripByToken).mockResolvedValue(TRIP);
+
+    const response = await GET(makeRequest(), makeParams());
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    // Full detail, no gating: the live/roster layer was consulted.
+    expect(body.trip.name).toBe('North Shore Run');
+    expect(body.vehicles).toHaveLength(2);
+    expect(getLiveVehicles).toHaveBeenCalled();
+  });
+
+  it('an in-window trip returns the full detail unchanged', async () => {
+    vi.mocked(getTripByToken).mockResolvedValue({
+      ...TRIP,
+      windowStart: new Date(Date.now() - DAY_MS).toISOString(),
+      windowEnd: new Date(Date.now() + DAY_MS).toISOString(),
+    });
+
+    const response = await GET(makeRequest(), makeParams());
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.trip.name).toBe('North Shore Run');
+    expect(body.vehicles).toHaveLength(2);
+    expect(getLiveVehicles).toHaveBeenCalled();
+  });
+
+  it('a not-yet-started trip returns the minimal status shape and leaks no vehicle/schedule data', async () => {
+    vi.mocked(getTripByToken).mockResolvedValue({
+      ...TRIP,
+      windowStart: new Date(Date.now() + DAY_MS).toISOString(),
+      windowEnd: new Date(Date.now() + 8 * DAY_MS).toISOString(),
+    });
+
+    const response = await GET(makeRequest(), makeParams());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: 'not_started',
+      message: WINDOW_MESSAGES.not_started,
+    });
+    // Nothing about the trip beyond the status message — and the live
+    // layer was never touched.
+    expect(getLiveVehicles).not.toHaveBeenCalled();
+  });
+
+  it('an ended trip returns the minimal ended shape and leaks no data', async () => {
+    vi.mocked(getTripByToken).mockResolvedValue({
+      ...TRIP,
+      windowStart: new Date(Date.now() - 8 * DAY_MS).toISOString(),
+      windowEnd: new Date(Date.now() - DAY_MS).toISOString(),
+    });
+
+    const response = await GET(makeRequest(), makeParams());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: 'ended',
+      message: WINDOW_MESSAGES.ended,
+    });
+    expect(getLiveVehicles).not.toHaveBeenCalled();
   });
 
   it('returns 429 with Retry-After before any store access, on the trip-specific limiter', async () => {
