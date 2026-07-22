@@ -57,7 +57,10 @@ interface TripVehicleDetail {
   // The active run's date label (Phase N5) — absent only when nothing is
   // scheduled at all.
   activeRunDateLabel?: string;
+  // Every run valid TODAY (Phase N6: window-checked; can be empty).
   schedule: TripCardScheduleEntry[];
+  // The same entries and window, one day ahead.
+  tomorrowSchedule: TripCardScheduleEntry[];
 }
 
 interface TripDetailResponse {
@@ -187,6 +190,7 @@ export default function TripPage() {
                 hasPosition={vehicle.position !== null}
                 positionConfident={vehicle.positionConfident}
                 schedule={vehicle.schedule}
+                tomorrowSchedule={vehicle.tomorrowSchedule}
                 activeRunDateLabel={vehicle.activeRunDateLabel ?? null}
                 serviceNote={vehicle.serviceNote ?? null}
                 pickupLabel={stopLabels[0] ?? 'the first stop'}

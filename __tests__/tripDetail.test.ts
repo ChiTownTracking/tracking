@@ -349,6 +349,53 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(detail.vehicles[0]).not.toHaveProperty('activeRunDateLabel');
   });
 
+  // Phase N6: THE reported bug's regression test, at the full API layer.
+  // A trip whose active window opens the same evening it's created
+  // (windowStart = Jul 22, 7:06 PM Chicago), with an early-morning daily
+  // schedule (7:30/8:00/8:30/9:00 AM). `now` is Jul 22, ~7:30 PM Chicago —
+  // TODAY's occurrences of every entry precede the window opening; the
+  // real next occurrences are all tomorrow.
+  it('REGRESSION: a same-evening window with early-morning times — empty today, tomorrow has all four upcoming', async () => {
+    vi.setSystemTime(new Date('2026-07-23T00:30:00.000Z')); // Jul 22, 7:30 PM Chicago
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+    const sameEveningTrip: Trip = {
+      ...TRIP,
+      windowStart: '2026-07-23T00:06:00.000Z', // Jul 22, 7:06 PM Chicago
+      windowEnd: '2026-07-30T00:06:00.000Z',
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            { id: 'run-0900', arrivalTime: '09:00', waitMinutes: 0 },
+            { id: 'run-0730', arrivalTime: '07:30', waitMinutes: 0 },
+            { id: 'run-0830', arrivalTime: '08:30', waitMinutes: 0 },
+            { id: 'run-0800', arrivalTime: '08:00', waitMinutes: 0 },
+          ],
+        },
+      ],
+    };
+
+    const detail = await buildTripDetailResponse(sameEveningTrip);
+    const vehicle = detail.vehicles[0];
+
+    // Nothing valid today — the whole point of the fix.
+    expect(vehicle.schedule).toEqual([]);
+    // Tomorrow has all four, each upcoming, in chronological order.
+    expect(vehicle.tomorrowSchedule.map((entry) => entry.id)).toEqual([
+      'run-0730',
+      'run-0800',
+      'run-0830',
+      'run-0900',
+    ]);
+    expect(
+      vehicle.tomorrowSchedule.every((entry) => entry.status === 'upcoming'),
+    ).toBe(true);
+    // The active run really is 07:30 AM tomorrow — not 9:00 AM (today's
+    // last entry, what the old unwindowed algorithm wrongly anchored on).
+    expect(vehicle.tomorrowSchedule[0].arrivalTime).toBe('07:30');
+    expect(vehicle.activeRunDateLabel).toBe('Thu, Jul 23');
+  });
+
   it('marks cancelled runs (flag present only when true) and strips their prediction', async () => {
     vi.mocked(getLiveVehicles).mockResolvedValue([
       liveVehicle('1000067169', 41.005, 12),

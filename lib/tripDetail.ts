@@ -1,13 +1,15 @@
 import { formatClock12Hour } from './clockFormat';
+import { computeDailySchedule } from './dailySchedule';
 import {
   computeDepartureClock,
   computePredictedArrivalRange,
 } from './departureTime';
 import { summarizeLiveProgress } from './liveProgress';
 import { getLiveVehicles } from './liveVehicles';
+import { getOccurrenceStatus } from './scheduleOccurrence';
 import { selectActiveScheduleEntry } from './scheduleEntry';
-import { getTripStatus, type TripStatus } from './scheduleStatus';
-import type { Trip } from './trips';
+import type { TripStatus } from './scheduleStatus';
+import type { ScheduleEntry, Trip } from './trips';
 import { getVehicleRoster } from './vehicleRoster';
 
 // Phase I1: the public trip detail, multi-vehicle. Every assigned vehicle
@@ -34,20 +36,71 @@ const chicagoYmd = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 });
 
-function formatActiveRunDate(now: Date, occursToday: boolean): string {
-  if (occursToday) {
+// Phase N6: generalized from a today/tomorrow boolean to an explicit
+// dateOffsetDays (0 = today, 1 = tomorrow, matching
+// lib/scheduleEntry.ts's ActiveScheduleSelection).
+function formatActiveRunDate(now: Date, dateOffsetDays: number): string {
+  if (dateOffsetDays === 0) {
     return runDateFormat.format(now);
   }
-  // Tomorrow: advance the Chicago calendar date by one and re-anchor at UTC
-  // noon — well clear of the 2 AM DST switch, and Date normalizes any
+  // Advance the Chicago calendar date by dateOffsetDays and re-anchor at
+  // UTC noon — well clear of the 2 AM DST switch, and Date normalizes any
   // month/year rollover — so a DST boundary can never mis-date it.
   const parts = chicagoYmd.formatToParts(now);
   const read = (type: string): number =>
     Number(parts.find((part) => part.type === type)?.value ?? '0');
-  const tomorrow = new Date(
-    Date.UTC(read('year'), read('month') - 1, read('day') + 1, 12),
+  const shifted = new Date(
+    Date.UTC(read('year'), read('month') - 1, read('day') + dateOffsetDays, 12),
   );
-  return runDateFormat.format(tomorrow);
+  return runDateFormat.format(shifted);
+}
+
+// The rich per-entry public shape (id/arrivalTime/waitMinutes/status/
+// cancelled?/departureClock/predictedArrivalRange), day-aware: dateOffsetDays
+// 0 for the existing today `schedule` field, 1 for the new
+// `tomorrowSchedule` field — both otherwise identical formatting.
+function buildScheduleEntryDetail(
+  entry: ScheduleEntry,
+  dateOffsetDays: number,
+  tripDurationSeconds: number,
+  now: Date,
+): SchedulePublicEntry {
+  const departureClock = computeDepartureClock(
+    entry.arrivalTime,
+    entry.waitMinutes,
+  );
+  return {
+    id: entry.id,
+    arrivalTime: entry.arrivalTime,
+    waitMinutes: entry.waitMinutes,
+    status: getOccurrenceStatus(
+      entry.arrivalTime,
+      dateOffsetDays,
+      entry.waitMinutes * 60 + tripDurationSeconds,
+      now,
+    ),
+    departureClock,
+    ...(entry.cancelled ? { cancelled: true } : {}),
+    // A cancelled run gets no prediction even when one was stored at
+    // booking — there is nothing to predict for a run that isn't
+    // happening.
+    predictedArrivalRange:
+      !entry.cancelled &&
+      entry.predictedArrivalDurationSeconds !== undefined &&
+      entry.predictedArrivalStaticDurationSeconds !== undefined
+        ? (() => {
+            const range = computePredictedArrivalRange(
+              departureClock,
+              entry.predictedArrivalDurationSeconds,
+              entry.predictedArrivalStaticDurationSeconds,
+            );
+            return {
+              early: formatClock12Hour(range.early),
+              late: formatClock12Hour(range.late),
+            };
+          })()
+        : null,
+  };
 }
 
 export interface TripVehicleDetail {
@@ -79,28 +132,39 @@ export interface TripVehicleDetail {
   // Present whenever there's an active entry to anchor it to; omitted only
   // for a fully-emptied assignment (nothing scheduled at all).
   activeRunDateLabel?: string;
-  // EVERY run, not just the active one, each with its clock-derived status.
-  schedule: {
-    id: string;
-    arrivalTime: string;
-    waitMinutes: number;
-    // Clock math only — a cancelled entry still carries its clock status;
-    // displays check `cancelled` first.
-    status: TripStatus;
-    // Phase L3: present (true) only when staff cancelled this run —
-    // omitted entirely otherwise, mirroring storage.
-    cancelled?: boolean;
-    // "HH:mm" — arrival + wait, the run's actual departure (Phase K2:
-    // exposed per entry, no longer an internal-only computation).
-    departureClock: string;
-    // Display-ready 12-hour predicted arrival RANGE at the FINAL stop —
-    // Google's traffic prediction and static baseline, bus-buffered and
-    // ordered (lib/departureTime.computePredictedArrivalRange). Null when
-    // either stored value is missing (failed/never computed). The raw
-    // seconds and the buffer multiplier are deliberately NOT exposed —
-    // only the two final formatted clock strings.
-    predictedArrivalRange: { early: string; late: string } | null;
-  }[];
+  // EVERY run whose occurrence is valid TODAY (Phase N6: window-checked —
+  // an occurrence outside the trip's active window, e.g. one that would
+  // have happened before the window even opened, is simply not in this
+  // list at all, not mislabeled). Can be EMPTY — that's a real, correct
+  // outcome, not a bug.
+  schedule: SchedulePublicEntry[];
+  // Phase N6: the SAME entries and window, one calendar day ahead — every
+  // run whose occurrence is valid TOMORROW. Lets the public page show
+  // what's coming up next even on a day where nothing (or nothing more)
+  // is left today.
+  tomorrowSchedule: SchedulePublicEntry[];
+}
+
+interface SchedulePublicEntry {
+  id: string;
+  arrivalTime: string;
+  waitMinutes: number;
+  // Clock math only — a cancelled entry still carries its clock status;
+  // displays check `cancelled` first.
+  status: TripStatus;
+  // Phase L3: present (true) only when staff cancelled this run —
+  // omitted entirely otherwise, mirroring storage.
+  cancelled?: boolean;
+  // "HH:mm" — arrival + wait, the run's actual departure (Phase K2:
+  // exposed per entry, no longer an internal-only computation).
+  departureClock: string;
+  // Display-ready 12-hour predicted arrival RANGE at the FINAL stop —
+  // Google's traffic prediction and static baseline, bus-buffered and
+  // ordered (lib/departureTime.computePredictedArrivalRange). Null when
+  // either stored value is missing (failed/never computed). The raw
+  // seconds and the buffer multiplier are deliberately NOT exposed —
+  // only the two final formatted clock strings.
+  predictedArrivalRange: { early: string; late: string } | null;
 }
 
 export interface TripDetailResponse {
@@ -139,45 +203,30 @@ export async function buildTripDetailResponse(
       rosterEntry?.description ||
       'Unknown vehicle';
 
-    // Clock-derived run labels — computed for every run regardless of live
-    // data. A run's "in progress" window includes its own pickup wait.
-    const schedule = assignment.schedule.map((entry) => {
-      const departureClock = computeDepartureClock(
-        entry.arrivalTime,
-        entry.waitMinutes,
-      );
-      return {
-        id: entry.id,
-        arrivalTime: entry.arrivalTime,
-        waitMinutes: entry.waitMinutes,
-        status: getTripStatus(
-          entry.arrivalTime,
-          entry.waitMinutes * 60 + trip.totalDurationSeconds,
-          now,
-        ),
-        departureClock,
-        ...(entry.cancelled ? { cancelled: true } : {}),
-        // A cancelled run gets no prediction even when one was stored at
-        // booking — there is nothing to predict for a run that isn't
-        // happening.
-        predictedArrivalRange:
-          !entry.cancelled &&
-          entry.predictedArrivalDurationSeconds !== undefined &&
-          entry.predictedArrivalStaticDurationSeconds !== undefined
-            ? (() => {
-                const range = computePredictedArrivalRange(
-                  departureClock,
-                  entry.predictedArrivalDurationSeconds,
-                  entry.predictedArrivalStaticDurationSeconds,
-                );
-                return {
-                  early: formatClock12Hour(range.early),
-                  late: formatClock12Hour(range.late),
-                };
-              })()
-            : null,
-      };
-    });
+    // Phase N6: which occurrences are actually valid TODAY vs TOMORROW,
+    // window-checked (computeDailySchedule) — not every configured run
+    // unconditionally. Both then get the SAME rich per-entry formatting
+    // (departureClock, predictedArrivalRange, day-aware status).
+    const schedule = computeDailySchedule(
+      assignment.schedule,
+      0,
+      trip.windowStart,
+      trip.windowEnd,
+      trip.totalDurationSeconds,
+      now,
+    ).map((item) =>
+      buildScheduleEntryDetail(item.entry, 0, trip.totalDurationSeconds, now),
+    );
+    const tomorrowSchedule = computeDailySchedule(
+      assignment.schedule,
+      1,
+      trip.windowStart,
+      trip.windowEnd,
+      trip.totalDurationSeconds,
+      now,
+    ).map((item) =>
+      buildScheduleEntryDetail(item.entry, 1, trip.totalDurationSeconds, now),
+    );
 
     // Present only when staff set one — the customer-facing "why service
     // changed" message (Phase L3).
@@ -196,12 +245,16 @@ export async function buildTripDetailResponse(
     // The active run drives BOTH the live dwell attribution below and the
     // Phase N5 date label — computed once here, for dark and live vehicles
     // alike. A replace can leave an assignment with NO runs (the L1
-    // history-record case): null then, and no date label at all.
+    // history-record case): null then, and no date label at all. Phase N6:
+    // window-checked across today AND tomorrow (lib/scheduleEntry.ts) —
+    // this is the actual fix for the reported bug.
     const activeSelection =
       assignment.schedule.length > 0
         ? selectActiveScheduleEntry(
             assignment.schedule,
             trip.totalDurationSeconds,
+            trip.windowStart,
+            trip.windowEnd,
             now,
           )
         : null;
@@ -212,7 +265,7 @@ export async function buildTripDetailResponse(
         ? {
             activeRunDateLabel: formatActiveRunDate(
               now,
-              activeSelection.occursToday,
+              activeSelection.dateOffsetDays,
             ),
           }
         : {};
@@ -234,6 +287,7 @@ export async function buildTripDetailResponse(
         ...cardLabel,
         ...activeRunDate,
         schedule,
+        tomorrowSchedule,
       };
     }
 
@@ -264,6 +318,7 @@ export async function buildTripDetailResponse(
       ...cardLabel,
       ...activeRunDate,
       schedule,
+      tomorrowSchedule,
     };
   });
 

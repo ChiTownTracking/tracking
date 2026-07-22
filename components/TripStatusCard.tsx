@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { ChevronDown, Locate } from 'lucide-react';
 import { formatClock12Hour } from '@/lib/clockFormat';
-import { selectActiveScheduleEntry } from '@/lib/scheduleEntry';
-import { getTripStatus, type TripStatus } from '@/lib/scheduleStatus';
+import { selectActiveFromDailyPools } from '@/lib/scheduleEntry';
+import { getOccurrenceStatus } from '@/lib/scheduleOccurrence';
+import type { TripStatus } from '@/lib/scheduleStatus';
 import ScheduleTimeline from './ScheduleTimeline';
 
 // Phase K2: one vehicle's card on the public trip page, redesigned around
@@ -45,6 +46,7 @@ export default function TripStatusCard({
   hasPosition,
   positionConfident,
   schedule,
+  tomorrowSchedule,
   activeRunDateLabel,
   serviceNote,
   pickupLabel,
@@ -61,7 +63,12 @@ export default function TripStatusCard({
   cardLabel?: string | null;
   hasPosition: boolean;
   positionConfident: boolean | null;
+  // Every run whose occurrence is valid TODAY (Phase N6: window-checked —
+  // can be genuinely EMPTY, e.g. a same-evening trip whose early-morning
+  // times all precede the window opening).
   schedule: TripCardScheduleEntry[];
+  // The SAME entries and window, one day ahead — every run valid TOMORROW.
+  tomorrowSchedule: TripCardScheduleEntry[];
   // Phase N5: the active run's Chicago-anchored calendar date ("Fri, Jul
   // 17"), from the API — appended after the active-run time in every
   // time-stating variant. Null only when there's no active run at all.
@@ -84,24 +91,27 @@ export default function TripStatusCard({
   onCenter: () => void;
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [tomorrowOpen, setTomorrowOpen] = useState(false);
 
-  // selectActiveScheduleEntry returns { entry, occursToday }; entry is an
-  // element of the array it was given, so the richer card entry type
-  // survives the narrower signature. Null only for an emptied assignment
-  // (all runs moved by an L1 replace); when every run is cancelled it
-  // returns the last one WITH its cancelled flag — a display anchor, not a
-  // live run. (occursToday is unused here — the date label comes from the
-  // API's activeRunDateLabel, computed server-side.)
-  const active =
-    schedule.length > 0
-      ? (selectActiveScheduleEntry(schedule, totalDurationSeconds, now)
-          .entry as TripCardScheduleEntry)
-      : null;
-  // Recomputed against the ticking clock (not the fetch-time status field)
-  // so the emphasized block appears/disappears between polls.
+  // Phase N6: searches BOTH pools (today's window-valid runs, tomorrow's)
+  // — the client-side counterpart to the server's own day-spanning
+  // selection, recomputed against the ticking clock (not the fetch-time
+  // status field) so the emphasized block appears/disappears between
+  // polls. Null only when NEITHER pool has anything at all (a fully
+  // emptied assignment, e.g. every run moved by an L1 replace). When
+  // every run in both pools is cancelled, it returns the last one WITH
+  // its cancelled flag — a display anchor, not a live run.
+  const selection = selectActiveFromDailyPools(
+    schedule,
+    tomorrowSchedule,
+    totalDurationSeconds,
+    now,
+  );
+  const active = selection?.entry ?? null;
   const activeStatus = active
-    ? getTripStatus(
+    ? getOccurrenceStatus(
         active.arrivalTime,
+        selection?.dateOffsetDays ?? 0,
         active.waitMinutes * 60 + totalDurationSeconds,
         now,
       )
@@ -257,9 +267,13 @@ export default function TripStatusCard({
         )}
 
       {/* Collapsed by default, always — the block above already surfaces an
-          in-progress run without expanding. An emptied schedule renders no
-          toggle at all: there is nothing behind it. */}
-      {schedule.length > 0 && (
+          in-progress run without expanding. Both toggles are hidden only
+          when the vehicle has NOTHING in either pool at all (a fully
+          emptied assignment, e.g. every run moved by an L1 replace) —
+          otherwise each toggle always shows, and an individually-empty
+          pool (Phase N6: a real, correct outcome, not a bug) says so
+          explicitly instead of rendering an ambiguous blank panel. */}
+      {(schedule.length > 0 || tomorrowSchedule.length > 0) && (
         <>
           <button
             type="button"
@@ -274,24 +288,76 @@ export default function TripStatusCard({
               className={scheduleOpen ? 'rotate-180 transition-transform' : 'transition-transform'}
             />
           </button>
-          {scheduleOpen && (
-            <ScheduleTimeline
-              schedule={schedule.map((entry) => entry.arrivalTime)}
-              durationSeconds={totalDurationSeconds}
-              extraSecondsPerEntry={schedule.map(
-                (entry) => entry.waitMinutes * 60,
-              )}
-              // Rows keep a single time (the early end) — the full range
-              // lives in the emphasized block above, not in every schedule
-              // row.
-              predictedArrivals={schedule.map(
-                (entry) => entry.predictedArrivalRange?.early ?? null,
-              )}
-              cancelledEntries={schedule.map(
-                (entry) => entry.cancelled === true,
-              )}
+          {scheduleOpen &&
+            (schedule.length === 0 ? (
+              <p
+                className="rounded-xl p-4 text-sm"
+                style={{
+                  background: 'var(--color-panel)',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                Nothing left today.
+              </p>
+            ) : (
+              <ScheduleTimeline
+                schedule={schedule.map((entry) => entry.arrivalTime)}
+                durationSeconds={totalDurationSeconds}
+                extraSecondsPerEntry={schedule.map(
+                  (entry) => entry.waitMinutes * 60,
+                )}
+                // Rows keep a single time (the early end) — the full range
+                // lives in the emphasized block above, not in every
+                // schedule row.
+                predictedArrivals={schedule.map(
+                  (entry) => entry.predictedArrivalRange?.early ?? null,
+                )}
+                cancelledEntries={schedule.map(
+                  (entry) => entry.cancelled === true,
+                )}
+              />
+            ))}
+
+          <button
+            type="button"
+            onClick={() => setTomorrowOpen((open) => !open)}
+            aria-expanded={tomorrowOpen}
+            className="mt-1 flex w-full items-center justify-between rounded-md py-2 text-sm"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Tomorrow&apos;s schedule
+            <ChevronDown
+              size={16}
+              className={tomorrowOpen ? 'rotate-180 transition-transform' : 'transition-transform'}
             />
-          )}
+          </button>
+          {tomorrowOpen &&
+            (tomorrowSchedule.length === 0 ? (
+              <p
+                className="rounded-xl p-4 text-sm"
+                style={{
+                  background: 'var(--color-panel)',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                Nothing scheduled tomorrow yet.
+              </p>
+            ) : (
+              <ScheduleTimeline
+                schedule={tomorrowSchedule.map((entry) => entry.arrivalTime)}
+                durationSeconds={totalDurationSeconds}
+                extraSecondsPerEntry={tomorrowSchedule.map(
+                  (entry) => entry.waitMinutes * 60,
+                )}
+                predictedArrivals={tomorrowSchedule.map(
+                  (entry) => entry.predictedArrivalRange?.early ?? null,
+                )}
+                cancelledEntries={tomorrowSchedule.map(
+                  (entry) => entry.cancelled === true,
+                )}
+                dateOffsetDays={1}
+              />
+            ))}
         </>
       )}
     </section>

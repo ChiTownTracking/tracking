@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { formatClock12Hour } from '@/lib/clockFormat';
-import { getTripStatus, type TripStatus } from '@/lib/scheduleStatus';
+import { getOccurrenceStatus } from '@/lib/scheduleOccurrence';
+import type { TripStatus } from '@/lib/scheduleStatus';
 
 // Today's departures for the selected route. Phase K2: ONE flat
 // chronological list (the H1 Completed/In progress/Upcoming sections are
@@ -31,6 +32,7 @@ export default function ScheduleTimeline({
   extraSecondsPerEntry,
   predictedArrivals,
   cancelledEntries,
+  dateOffsetDays = 0,
 }: {
   schedule: string[];
   durationSeconds: number;
@@ -48,6 +50,13 @@ export default function ScheduleTimeline({
   // "Cancelled" — never "In progress" or "Completed" — and shows no
   // predicted arrival.
   cancelledEntries?: boolean[];
+  // Phase N6: which calendar day this list's times belong to — 0 (the
+  // default, every existing caller) = today, 1 = tomorrow. Every entry's
+  // status is computed against THIS day, not always "today at HH:mm" —
+  // otherwise a tomorrow list would misread its own rows against today's
+  // clock (a 7:30 AM row would flip to "Completed" the moment today's
+  // clock passes 7:30, even though the row is for tomorrow).
+  dateOffsetDays?: number;
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -70,8 +79,9 @@ export default function ScheduleTimeline({
     .sort((a, b) => a.time.localeCompare(b.time))
     .map((entry) => ({
       ...entry,
-      status: getTripStatus(
+      status: getOccurrenceStatus(
         entry.time,
+        dateOffsetDays,
         durationSeconds + entry.extraSeconds,
         now,
       ),
@@ -83,7 +93,7 @@ export default function ScheduleTimeline({
       style={{ background: 'var(--color-panel)' }}
     >
       <p className="mb-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-        Today&apos;s departures
+        {dateOffsetDays === 0 ? "Today's departures" : "Tomorrow's departures"}
       </p>
       <ul className="flex flex-col gap-2">
         {entries.map((entry) => {

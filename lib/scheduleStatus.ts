@@ -20,23 +20,48 @@ function chicagoSecondsOfDay(now: Date): number {
   return read('hour') * 3600 + read('minute') * 60 + read('second');
 }
 
+// Phase N6: the lower-level primitive — status of a CONCRETE occurrence
+// (a real instant), rather than one derived internally from "today at
+// HH:mm." lib/scheduleOccurrence.ts calls this once it has resolved
+// exactly which calendar day's occurrence is in question (today,
+// tomorrow, ...); getTripStatus below is now just this function's
+// "today" special case, kept as-is for its many existing callers.
+export function getStatusForOccurrence(
+  occurrenceStart: Date,
+  durationSeconds: number,
+  now: Date,
+): TripStatus {
+  const startMs = occurrenceStart.getTime();
+  const endMs = startMs + durationSeconds * 1000;
+  const nowMs = now.getTime();
+
+  // Both boundaries are inclusive on the later state: exactly at departure
+  // is in-progress, exactly at departure + duration is completed.
+  if (nowMs < startMs) {
+    return 'upcoming';
+  }
+  if (nowMs < endMs) {
+    return 'in-progress';
+  }
+  return 'completed';
+}
+
 export function getTripStatus(
   scheduledTime: string,
   durationSeconds: number,
   now: Date,
 ): TripStatus {
   const [hours, minutes] = scheduledTime.split(':').map(Number);
-  const startSeconds = hours * 3600 + minutes * 60;
-  const endSeconds = startSeconds + durationSeconds;
+  const targetSeconds = hours * 3600 + minutes * 60;
   const nowSeconds = chicagoSecondsOfDay(now);
-
-  // Both boundaries are inclusive on the later state: exactly at departure
-  // is in-progress, exactly at departure + duration is completed.
-  if (nowSeconds < startSeconds) {
-    return 'upcoming';
-  }
-  if (nowSeconds < endSeconds) {
-    return 'in-progress';
-  }
-  return 'completed';
+  // "Today at scheduledTime" as a real instant: `now` shifted by the
+  // difference between the target clock time and now's own clock time.
+  // Algebraically identical to the original raw-seconds-of-day comparison
+  // this replaced — the shift cancels out on both sides of
+  // getStatusForOccurrence's comparisons — so existing behavior (and every
+  // existing test) is unchanged.
+  const occurrenceStart = new Date(
+    now.getTime() + (targetSeconds - nowSeconds) * 1000,
+  );
+  return getStatusForOccurrence(occurrenceStart, durationSeconds, now);
 }
