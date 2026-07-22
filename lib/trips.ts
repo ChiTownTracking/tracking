@@ -45,6 +45,14 @@ export interface VehicleAssignment {
   // Phase L1: staff-facing explanation attached by cancel/replace ("bus
   // broke down", "swapped for maintenance"). Absent when never set.
   serviceNote?: string;
+  // Phase N4: an optional customer-facing prefix shown before the vehicle
+  // number on the public trip card ("ROUTE A - 2401"). Set at creation,
+  // editable afterward. Absent means "just show the vehicle number" —
+  // same absent-means-normal convention as every optional field here.
+  // Deliberately NOT "label" (Waypoint owns that for stops) nor
+  // "vehicleLabel" (the response's roster-derived vehicle number) —
+  // distinct name, distinct meaning.
+  cardLabel?: string;
 }
 
 export interface Trip {

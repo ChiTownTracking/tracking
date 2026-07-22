@@ -26,6 +26,10 @@ export const createTripInputSchema = z
       .array(
         z.object({
           vehicleId: z.string().min(1),
+          // Phase N4: optional customer-facing card prefix ("Route A"),
+          // trimmed and capped at one line's worth — it renders before the
+          // vehicle number on the trip card and must not wrap.
+          cardLabel: z.string().trim().max(40).optional(),
           // At least one run per assigned vehicle — a vehicle with nothing
           // scheduled has no reason to be on the trip.
           schedule: z

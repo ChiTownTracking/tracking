@@ -16,6 +16,40 @@ import { getVehicleRoster } from './vehicleRoster';
 // schedule with per-run Completed/In Progress/Upcoming statuses — the
 // status labels are pure clock math, independent of live position.
 
+// Phase N5: the active run's calendar date, Chicago-anchored like every
+// other date/time computation in this app ("Fri, Jul 17").
+const runDateFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+
+// Reads a Date's Chicago calendar Y/M/D — the basis for advancing to
+// "tomorrow" without local-timezone Date math.
+const chicagoYmd = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Chicago',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function formatActiveRunDate(now: Date, occursToday: boolean): string {
+  if (occursToday) {
+    return runDateFormat.format(now);
+  }
+  // Tomorrow: advance the Chicago calendar date by one and re-anchor at UTC
+  // noon — well clear of the 2 AM DST switch, and Date normalizes any
+  // month/year rollover — so a DST boundary can never mis-date it.
+  const parts = chicagoYmd.formatToParts(now);
+  const read = (type: string): number =>
+    Number(parts.find((part) => part.type === type)?.value ?? '0');
+  const tomorrow = new Date(
+    Date.UTC(read('year'), read('month') - 1, read('day') + 1, 12),
+  );
+  return runDateFormat.format(tomorrow);
+}
+
 export interface TripVehicleDetail {
   vehicleId: string;
   // From the normalized roster (registrationNumber/description, same fields
@@ -35,6 +69,16 @@ export interface TripVehicleDetail {
   // down, swapped to spare") — present only when set, omitted when absent,
   // same convention as every optional field.
   serviceNote?: string;
+  // Phase N4: optional customer-facing card prefix ("Route A"), shown
+  // before the vehicle number on the card — present only when set, omitted
+  // when absent (same convention as serviceNote).
+  cardLabel?: string;
+  // Phase N5: the active run's real calendar date, Chicago-anchored and
+  // preformatted ("Fri, Jul 17") — today when the run is happening/next
+  // today, tomorrow when the fallback anchored on an already-finished run.
+  // Present whenever there's an active entry to anchor it to; omitted only
+  // for a fully-emptied assignment (nothing scheduled at all).
+  activeRunDateLabel?: string;
   // EVERY run, not just the active one, each with its clock-derived status.
   schedule: {
     id: string;
@@ -142,6 +186,37 @@ export async function buildTripDetailResponse(
         ? { serviceNote: assignment.serviceNote }
         : {};
 
+    // Phase N4: the optional card-label prefix, same present-or-omitted
+    // spread as serviceNote.
+    const cardLabel =
+      assignment.cardLabel !== undefined
+        ? { cardLabel: assignment.cardLabel }
+        : {};
+
+    // The active run drives BOTH the live dwell attribution below and the
+    // Phase N5 date label — computed once here, for dark and live vehicles
+    // alike. A replace can leave an assignment with NO runs (the L1
+    // history-record case): null then, and no date label at all.
+    const activeSelection =
+      assignment.schedule.length > 0
+        ? selectActiveScheduleEntry(
+            assignment.schedule,
+            trip.totalDurationSeconds,
+            now,
+          )
+        : null;
+    // Present whenever there's an entry to anchor it to; omitted only for a
+    // fully-emptied assignment.
+    const activeRunDate =
+      activeSelection !== null
+        ? {
+            activeRunDateLabel: formatActiveRunDate(
+              now,
+              activeSelection.occursToday,
+            ),
+          }
+        : {};
+
     const live = liveById.get(assignment.vehicleId);
     if (!live) {
       // No live fix: honest nulls, static schedule still fully present —
@@ -156,6 +231,8 @@ export async function buildTripDetailResponse(
         nextStopIndex: null,
         stopEtas: null,
         ...serviceNote,
+        ...cardLabel,
+        ...activeRunDate,
         schedule,
       };
     }
@@ -165,16 +242,8 @@ export async function buildTripDetailResponse(
     // time is per-run, nowhere else). A replace can leave an assignment
     // with NO runs (the L1 history-record case) — zero dwell is the honest
     // attribution then.
-    const activeEntry =
-      assignment.schedule.length > 0
-        ? selectActiveScheduleEntry(
-            assignment.schedule,
-            trip.totalDurationSeconds,
-            now,
-          )
-        : null;
     const dwellMinutes = trip.waypoints.map((_, index) =>
-      index === 0 ? (activeEntry?.waitMinutes ?? 0) : 0,
+      index === 0 ? (activeSelection?.entry.waitMinutes ?? 0) : 0,
     );
     const progress = summarizeLiveProgress(trip, dwellMinutes, live, trip.id);
 
@@ -192,6 +261,8 @@ export async function buildTripDetailResponse(
       nextStopIndex: progress.nextStopIndex,
       stopEtas: progress.stopEtas,
       ...serviceNote,
+      ...cardLabel,
+      ...activeRunDate,
       schedule,
     };
   });

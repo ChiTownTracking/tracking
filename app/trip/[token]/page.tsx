@@ -52,6 +52,11 @@ interface TripVehicleDetail {
   stopEtas: { arrival: string | null; departure: string | null }[] | null;
   // Present only when staff attached one via cancel/replace (Phase L3).
   serviceNote?: string;
+  // Present only when staff set a card-label prefix (Phase N4).
+  cardLabel?: string;
+  // The active run's date label (Phase N5) — absent only when nothing is
+  // scheduled at all.
+  activeRunDateLabel?: string;
   schedule: TripCardScheduleEntry[];
 }
 
@@ -178,10 +183,11 @@ export default function TripPage() {
               <TripStatusCard
                 key={mapTrips[index].id}
                 vehicleLabel={vehicle.vehicleLabel}
+                cardLabel={vehicle.cardLabel ?? null}
                 hasPosition={vehicle.position !== null}
-                positionUpdatedAt={vehicle.positionUpdatedAt}
                 positionConfident={vehicle.positionConfident}
                 schedule={vehicle.schedule}
+                activeRunDateLabel={vehicle.activeRunDateLabel ?? null}
                 serviceNote={vehicle.serviceNote ?? null}
                 pickupLabel={stopLabels[0] ?? 'the first stop'}
                 destinationLabel={

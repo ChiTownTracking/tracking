@@ -20,11 +20,21 @@ import type { ScheduleEntry } from './trips';
 // Assumes a non-empty schedule — a vehicle assignment always has at least
 // one run at creation. (A post-replace emptied assignment exists, but its
 // callers guard for length before calling.)
+export interface ActiveScheduleSelection {
+  entry: ScheduleEntry;
+  // true when the selection is a run genuinely happening today: the
+  // in-progress run, or the next upcoming one. false ONLY for the fallback
+  // where every run today is already completed/cancelled and we anchored on
+  // the last one — by construction that run's real NEXT occurrence is
+  // tomorrow, so no clock comparison is needed to know the date has rolled.
+  occursToday: boolean;
+}
+
 export function selectActiveScheduleEntry(
   schedule: ScheduleEntry[],
   tripDurationSeconds: number,
   now: Date,
-): ScheduleEntry {
+): ActiveScheduleSelection {
   // Zero-padded "HH:mm" sorts lexicographically === chronologically; never
   // assume the stored order.
   const ordered = [...schedule].sort((a, b) =>
@@ -43,14 +53,14 @@ export function selectActiveScheduleEntry(
     (_, index) => statuses[index] === 'in-progress',
   );
   if (inProgress) {
-    return inProgress;
+    return { entry: inProgress, occursToday: true };
   }
   const upcoming = real.find((_, index) => statuses[index] === 'upcoming');
   if (upcoming) {
-    return upcoming;
+    return { entry: upcoming, occursToday: true };
   }
   if (real.length > 0) {
-    return real[real.length - 1];
+    return { entry: real[real.length - 1], occursToday: false };
   }
-  return ordered[ordered.length - 1];
+  return { entry: ordered[ordered.length - 1], occursToday: false };
 }

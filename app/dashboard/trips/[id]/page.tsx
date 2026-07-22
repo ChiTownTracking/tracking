@@ -88,6 +88,13 @@ function VehicleSection({
   onChanged: () => Promise<unknown>;
 }) {
   const [note, setNote] = useState(assignment.serviceNote ?? '');
+  // Phase N4: the card label is its OWN field with its own Save action —
+  // a persistent display setting, not part of the disruptive cancel/
+  // replace flow, so no confirmation friction.
+  const [cardLabel, setCardLabel] = useState(assignment.cardLabel ?? '');
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
+  const [labelSaved, setLabelSaved] = useState(false);
   // 'cancel' shows the confirm row; 'replace' shows the picker (whose
   // submit button is itself the explicit second step).
   const [openAction, setOpenAction] = useState<'cancel' | 'replace' | null>(
@@ -152,6 +159,42 @@ function VehicleSection({
     }
   }
 
+  async function saveLabel() {
+    setLabelBusy(true);
+    setLabelError(null);
+    setLabelSaved(false);
+    try {
+      const res = await fetch(
+        `/api/internal/trips/${trip.id}/vehicles/${assignment.vehicleId}/label`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          // Empty string clears the label server-side (field removed, not
+          // stored as '').
+          body: JSON.stringify({ cardLabel: cardLabel.trim() || null }),
+        },
+      );
+      if (redirectIfSessionExpired(res.status)) {
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setLabelError(
+          body && typeof body.error === 'string'
+            ? body.error
+            : `Request failed (${res.status})`,
+        );
+        return;
+      }
+      await onChanged();
+      setLabelSaved(true);
+    } catch {
+      setLabelError('Request failed — please try again.');
+    } finally {
+      setLabelBusy(false);
+    }
+  }
+
   const replacementLabel =
     replacementId === null
       ? null
@@ -165,6 +208,44 @@ function VehicleSection({
           ? `${rosterVehicle.registrationNumber} — ${rosterVehicle.description}`
           : assignment.vehicleId}
       </h3>
+
+      <div className="mt-3">
+        <span className="mb-1.5 block text-xs text-text-muted">
+          Card label (shown before the vehicle number on the customer card)
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={cardLabel}
+            onChange={(event) => {
+              setCardLabel(event.target.value);
+              setLabelSaved(false);
+            }}
+            maxLength={40}
+            placeholder="e.g. Route A (empty clears it)"
+            aria-label={`Card label for ${assignment.vehicleId}`}
+            className={`flex-1 ${fieldInputClass}`}
+          />
+          <button
+            type="button"
+            onClick={saveLabel}
+            disabled={labelBusy}
+            className="rounded-md border border-white/10 px-3 py-1.5 text-sm font-medium disabled:opacity-50 hover:bg-white/5"
+          >
+            {labelBusy ? 'Saving…' : 'Save label'}
+          </button>
+        </div>
+        {labelSaved && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-live)' }}>
+            Label saved.
+          </p>
+        )}
+        {labelError && (
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-alert)' }}>
+            {labelError}
+          </p>
+        )}
+      </div>
 
       <label className="mt-3 block">
         <span className="mb-1.5 block text-xs text-text-muted">

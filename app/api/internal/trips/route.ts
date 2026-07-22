@@ -175,6 +175,12 @@ export async function POST(request: Request) {
       totalDurationSeconds: result.durationSeconds,
       vehicles: parsed.data.vehicles.map((assignment) => ({
         vehicleId: assignment.vehicleId,
+        // Phase N4: store the card label only when it's a non-empty string
+        // — a trimmed-to-empty value is absent, not stored as '', matching
+        // the absent-means-normal convention.
+        ...(assignment.cardLabel
+          ? { cardLabel: assignment.cardLabel }
+          : {}),
         schedule: assignment.schedule.map((entry) => {
           const predicted = departurePredictions.get(
             computeDepartureClock(entry.arrivalTime, entry.waitMinutes),

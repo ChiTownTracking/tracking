@@ -43,6 +43,9 @@ interface VehicleBlock {
   key: string;
   vehicleId: string | null;
   query: string;
+  // Phase N4: optional customer-facing card prefix ("Route A"). Submitted
+  // as cardLabel only when non-empty.
+  cardLabel: string;
   runs: RunRow[];
 }
 
@@ -55,6 +58,7 @@ function makeVehicleBlock(): VehicleBlock {
     key: crypto.randomUUID(),
     vehicleId: null,
     query: '',
+    cardLabel: '',
     runs: [makeRun()],
   };
 }
@@ -217,6 +221,10 @@ export default function NewTripPage() {
           ),
           vehicles: vehicles.map((block) => ({
             vehicleId: block.vehicleId,
+            // Only send a card label when the staff actually typed one.
+            ...(block.cardLabel.trim() !== ''
+              ? { cardLabel: block.cardLabel.trim() }
+              : {}),
             schedule: block.runs.map((run) => ({
               arrivalTime: run.arrivalTime,
               waitMinutes: parseWaitMinutes(run.waitMinutes) ?? 0,
@@ -376,6 +384,25 @@ export default function NewTripPage() {
                     }
                     searchLabel={`Search vehicles for vehicle ${blockIndex + 1}`}
                   />
+
+                  <label className="mt-3 block">
+                    <span className="mb-1.5 block text-xs text-text-muted">
+                      Card label (optional)
+                    </span>
+                    <input
+                      type="text"
+                      value={block.cardLabel}
+                      onChange={(event) =>
+                        updateBlock(block.key, {
+                          cardLabel: event.target.value,
+                        })
+                      }
+                      maxLength={40}
+                      placeholder="Card label (optional) — e.g. Route A"
+                      aria-label={`Card label for vehicle ${blockIndex + 1}`}
+                      className={fieldInputClass}
+                    />
+                  </label>
 
                   <div className="mt-3">
                     <span className="mb-1.5 block text-xs text-text-muted">

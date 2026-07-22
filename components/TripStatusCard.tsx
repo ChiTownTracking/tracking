@@ -5,7 +5,6 @@ import { ChevronDown, Locate } from 'lucide-react';
 import { formatClock12Hour } from '@/lib/clockFormat';
 import { selectActiveScheduleEntry } from '@/lib/scheduleEntry';
 import { getTripStatus, type TripStatus } from '@/lib/scheduleStatus';
-import { formatRelativeTime } from '@/lib/vehicleStatus';
 import ScheduleTimeline from './ScheduleTimeline';
 
 // Phase K2: one vehicle's card on the public trip page, redesigned around
@@ -42,10 +41,11 @@ function ApproximateTag() {
 
 export default function TripStatusCard({
   vehicleLabel,
+  cardLabel,
   hasPosition,
-  positionUpdatedAt,
   positionConfident,
   schedule,
+  activeRunDateLabel,
   serviceNote,
   pickupLabel,
   destinationLabel,
@@ -56,10 +56,16 @@ export default function TripStatusCard({
   onCenter,
 }: {
   vehicleLabel: string;
+  // Phase N4: optional staff-set prefix shown before the vehicle number
+  // ("ROUTE A - 2401"); absent renders just the vehicle number as before.
+  cardLabel?: string | null;
   hasPosition: boolean;
-  positionUpdatedAt: string | null;
   positionConfident: boolean | null;
   schedule: TripCardScheduleEntry[];
+  // Phase N5: the active run's Chicago-anchored calendar date ("Fri, Jul
+  // 17"), from the API — appended after the active-run time in every
+  // time-stating variant. Null only when there's no active run at all.
+  activeRunDateLabel?: string | null;
   // The staff-written "why service changed" message (Phase L3) — the whole
   // point of the cancel/replace feature for customers, so it renders
   // prominently on the card, never buried in the collapsed schedule.
@@ -79,18 +85,17 @@ export default function TripStatusCard({
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
-  // selectActiveScheduleEntry returns an element of the array it was
-  // given, so the richer card entry type survives the narrower signature.
-  // Null only for an emptied assignment (all runs moved by an L1 replace);
-  // when every run is cancelled it returns the last one WITH its cancelled
-  // flag — a display anchor, not a live run.
+  // selectActiveScheduleEntry returns { entry, occursToday }; entry is an
+  // element of the array it was given, so the richer card entry type
+  // survives the narrower signature. Null only for an emptied assignment
+  // (all runs moved by an L1 replace); when every run is cancelled it
+  // returns the last one WITH its cancelled flag — a display anchor, not a
+  // live run. (occursToday is unused here — the date label comes from the
+  // API's activeRunDateLabel, computed server-side.)
   const active =
     schedule.length > 0
-      ? (selectActiveScheduleEntry(
-          schedule,
-          totalDurationSeconds,
-          now,
-        ) as TripCardScheduleEntry)
+      ? (selectActiveScheduleEntry(schedule, totalDurationSeconds, now)
+          .entry as TripCardScheduleEntry)
       : null;
   // Recomputed against the ticking clock (not the fetch-time status field)
   // so the emphasized block appears/disappears between polls.
@@ -119,15 +124,9 @@ export default function TripStatusCard({
             style={{ background: color }}
           />
         )}
-        <h2 className="customer-heading text-lg">{vehicleLabel}</h2>
-        {hasPosition && positionUpdatedAt && (
-          <span
-            className="text-xs"
-            style={{ color: 'var(--color-text-muted)' }}
-          >
-            Updated {formatRelativeTime(positionUpdatedAt)}
-          </span>
-        )}
+        <h2 className="customer-heading text-lg">
+          {cardLabel ? `${cardLabel} - ${vehicleLabel}` : vehicleLabel}
+        </h2>
         <button
           type="button"
           onClick={onCenter}
@@ -184,6 +183,7 @@ export default function TripStatusCard({
             {formatClock12Hour(active.arrivalTime)}
           </span>{' '}
           pickup at {pickupLabel} is cancelled.
+          {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
         </p>
       ) : (
         <>
@@ -192,6 +192,8 @@ export default function TripStatusCard({
             <span className="font-medium">
               {formatClock12Hour(active.arrivalTime)}
             </span>
+            {/* Phase N5: always append the active run's date, today or not. */}
+            {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
             {/* The confidence tag sits beside the predicted time when the
                 emphasized block is shown; when it isn't, beside this time. */}
             {hasPosition &&

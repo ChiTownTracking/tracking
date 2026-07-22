@@ -285,6 +285,70 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(detail.vehicles[1]).not.toHaveProperty('serviceNote');
   });
 
+  // Phase N4: the optional card-label prefix follows the same present-or-
+  // omitted convention as serviceNote.
+  it('passes cardLabel through when present and omits it entirely when absent', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+    const tripWithLabel: Trip = {
+      ...TRIP,
+      vehicles: [
+        { ...TRIP.vehicles[0], cardLabel: 'Route A' },
+        TRIP.vehicles[1],
+      ],
+    };
+
+    const detail = await buildTripDetailResponse(tripWithLabel);
+
+    expect(detail.vehicles[0].cardLabel).toBe('Route A');
+    // Absent, not null, not empty string.
+    expect(detail.vehicles[1]).not.toHaveProperty('cardLabel');
+  });
+
+  // Phase N5: the active run's real calendar date, Chicago-anchored. The
+  // clock is pinned to noon Chicago (Fri, Jul 17) in beforeEach.
+  it('an in-progress run today produces TODAY\'s date label', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse(TRIP);
+
+    // vehicles[0]'s 11:55 run is in progress at noon → today.
+    expect(detail.vehicles[0].activeRunDateLabel).toBe('Fri, Jul 17');
+  });
+
+  it("the all-completed fallback produces TOMORROW's date label", async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+    const allDoneTrip: Trip = {
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          // Both ended well before noon → the fallback anchors on the last
+          // one, whose next real occurrence is tomorrow.
+          schedule: [
+            { id: 'done-1', arrivalTime: '07:00', waitMinutes: 10 },
+            { id: 'done-2', arrivalTime: '08:30', waitMinutes: 0 },
+          ],
+        },
+      ],
+    };
+
+    const detail = await buildTripDetailResponse(allDoneTrip);
+
+    expect(detail.vehicles[0].activeRunDateLabel).toBe('Sat, Jul 18');
+  });
+
+  it('omits activeRunDateLabel entirely for an emptied assignment (nothing scheduled)', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+    const emptied: Trip = {
+      ...TRIP,
+      vehicles: [{ vehicleId: '1000067169', schedule: [] }],
+    };
+
+    const detail = await buildTripDetailResponse(emptied);
+
+    expect(detail.vehicles[0]).not.toHaveProperty('activeRunDateLabel');
+  });
+
   it('marks cancelled runs (flag present only when true) and strips their prediction', async () => {
     vi.mocked(getLiveVehicles).mockResolvedValue([
       liveVehicle('1000067169', 41.005, 12),
