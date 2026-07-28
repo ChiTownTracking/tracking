@@ -6,11 +6,17 @@ import { Check, Copy, Plus, Trash2 } from 'lucide-react';
 import DashboardNav from '@/components/DashboardNav';
 import { fieldInputClass } from '@/components/formStyles';
 import StopListEditor, { type StopEntry } from '@/components/StopListEditor';
-import VehiclePicker from '@/components/VehiclePicker';
+import VehicleScheduleBlock from '@/components/VehicleScheduleBlock';
 import {
   defaultWindowEnd,
   defaultWindowStart,
 } from '@/lib/datetimeLocalDefault';
+import {
+  findVehicleBlockBlocker,
+  makeVehicleBlock,
+  toVehiclePayload,
+  type VehicleBlock,
+} from '@/lib/vehicleBlock';
 import type { RosterVehicle } from '@/lib/vehicleRoster';
 import { redirectIfSessionExpired } from '@/lib/sessionExpiry';
 import { useTheme } from '@/lib/useTheme';
@@ -31,64 +37,10 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
-// One run row as edited: waitMinutes stays a raw string until submit so the
-// input never fights the user mid-typing; validation names bad values.
-interface RunRow {
-  key: string;
-  arrivalTime: string;
-  waitMinutes: string;
-}
-
-interface VehicleBlock {
-  key: string;
-  vehicleId: string | null;
-  query: string;
-  // Phase N4: optional customer-facing card prefix ("Route A"). Submitted
-  // as cardLabel only when non-empty.
-  cardLabel: string;
-  runs: RunRow[];
-}
-
-function makeRun(): RunRow {
-  return { key: crypto.randomUUID(), arrivalTime: '', waitMinutes: '0' };
-}
-
-function makeVehicleBlock(): VehicleBlock {
-  return {
-    key: crypto.randomUUID(),
-    vehicleId: null,
-    query: '',
-    cardLabel: '',
-    runs: [makeRun()],
-  };
-}
-
-function parseWaitMinutes(raw: string): number | null {
-  if (raw.trim() === '') {
-    return null;
-  }
-  const value = Number(raw);
-  return Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-// "07:05" + 25 → "07:30": the computed departure staff see live next to
-// their own inputs, so nobody does clock math in their head. Wraps past
-// midnight the same way the schedule status logic would read it.
-function computeDeparture(arrivalTime: string, waitRaw: string): string | null {
-  const wait = parseWaitMinutes(waitRaw);
-  if (!/^\d{2}:\d{2}$/.test(arrivalTime) || wait === null) {
-    return null;
-  }
-  const [hours, minutes] = arrivalTime.split(':').map(Number);
-  const total = (hours * 60 + minutes + wait) % (24 * 60);
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(
-    total % 60,
-  ).padStart(2, '0')}`;
-}
-
 // Client-side mirror of createTripInputSchema (the server still enforces
 // it). First problem wins — one clear, named message at a time; never a
-// silently disabled button.
+// silently disabled button. The per-vehicle half lives in lib/vehicleBlock,
+// shared with the trip detail page's add-a-vehicle form.
 function findBlocker(
   name: string,
   windowStart: string,
@@ -124,18 +76,9 @@ function findBlocker(
     return 'Add at least one vehicle.';
   }
   for (const [index, block] of vehicles.entries()) {
-    const position = `Vehicle ${index + 1}`;
-    if (block.vehicleId === null) {
-      return `${position} needs a vehicle selected.`;
-    }
-    if (block.runs.length === 0) {
-      return `${position} needs at least one departure time.`;
-    }
-    if (block.runs.some((run) => run.arrivalTime.trim() === '')) {
-      return `${position}: every arrival time needs a value (or remove the empty row).`;
-    }
-    if (block.runs.some((run) => parseWaitMinutes(run.waitMinutes) === null)) {
-      return `${position}: wait minutes must be a whole number of 0 or more.`;
+    const blocker = findVehicleBlockBlocker(block, `Vehicle ${index + 1}`);
+    if (blocker !== null) {
+      return blocker;
     }
   }
   return null;
@@ -175,21 +118,6 @@ export default function NewTripPage() {
     );
   }
 
-  function updateRun(blockKey: string, runKey: string, patch: Partial<RunRow>) {
-    setVehicles((current) =>
-      current.map((block) =>
-        block.key === blockKey
-          ? {
-              ...block,
-              runs: block.runs.map((run) =>
-                run.key === runKey ? { ...run, ...patch } : run,
-              ),
-            }
-          : block,
-      ),
-    );
-  }
-
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setFormError(null);
@@ -219,17 +147,7 @@ export default function NewTripPage() {
                 ]
               : [],
           ),
-          vehicles: vehicles.map((block) => ({
-            vehicleId: block.vehicleId,
-            // Only send a card label when the staff actually typed one.
-            ...(block.cardLabel.trim() !== ''
-              ? { cardLabel: block.cardLabel.trim() }
-              : {}),
-            schedule: block.runs.map((run) => ({
-              arrivalTime: run.arrivalTime,
-              waitMinutes: parseWaitMinutes(run.waitMinutes) ?? 0,
-            })),
-          })),
+          vehicles: vehicles.map(toVehiclePayload),
         }),
       });
       if (redirectIfSessionExpired(res.status)) {
@@ -368,130 +286,14 @@ export default function NewTripPage() {
                     </button>
                   </legend>
 
-                  <VehiclePicker
+                  <VehicleScheduleBlock
+                    block={block}
+                    onChange={(patch) => updateBlock(block.key, patch)}
                     roster={roster}
-                    isLoading={rosterLoading}
-                    loadFailed={Boolean(rosterError)}
-                    query={block.query}
-                    onQueryChange={(query) => updateBlock(block.key, { query })}
-                    selected={
-                      new Set(block.vehicleId === null ? [] : [block.vehicleId])
-                    }
-                    onToggle={(id) =>
-                      updateBlock(block.key, {
-                        vehicleId: block.vehicleId === id ? null : id,
-                      })
-                    }
-                    searchLabel={`Search vehicles for vehicle ${blockIndex + 1}`}
+                    rosterLoading={rosterLoading}
+                    rosterFailed={Boolean(rosterError)}
+                    labelPrefix={`Vehicle ${blockIndex + 1}`}
                   />
-
-                  <label className="mt-3 block">
-                    <span className="mb-1.5 block text-xs text-text-muted">
-                      Card label (optional)
-                    </span>
-                    <input
-                      type="text"
-                      value={block.cardLabel}
-                      onChange={(event) =>
-                        updateBlock(block.key, {
-                          cardLabel: event.target.value,
-                        })
-                      }
-                      maxLength={40}
-                      placeholder="Card label (optional) — e.g. Route A"
-                      aria-label={`Card label for vehicle ${blockIndex + 1}`}
-                      className={fieldInputClass}
-                    />
-                  </label>
-
-                  <div className="mt-3">
-                    <span className="mb-1.5 block text-xs text-text-muted">
-                      Departures (arrival at first stop + wait before leaving)
-                    </span>
-                    <ul className="flex flex-col gap-2">
-                      {block.runs.map((run, runIndex) => {
-                        const departure = computeDeparture(
-                          run.arrivalTime,
-                          run.waitMinutes,
-                        );
-                        return (
-                          <li
-                            key={run.key}
-                            className="flex flex-wrap items-center gap-2"
-                          >
-                            <input
-                              type="time"
-                              value={run.arrivalTime}
-                              onChange={(event) =>
-                                updateRun(block.key, run.key, {
-                                  arrivalTime: event.target.value,
-                                })
-                              }
-                              aria-label={`Vehicle ${blockIndex + 1} arrival time ${runIndex + 1}`}
-                              className={`${fieldInputClass} w-auto`}
-                            />
-                            <label className="flex items-center gap-1.5 text-xs text-text-muted">
-                              wait
-                              <input
-                                type="number"
-                                min={0}
-                                step={1}
-                                value={run.waitMinutes}
-                                onChange={(event) =>
-                                  updateRun(block.key, run.key, {
-                                    waitMinutes: event.target.value,
-                                  })
-                                }
-                                aria-label={`Vehicle ${blockIndex + 1} wait minutes ${runIndex + 1}`}
-                                className={`${fieldInputClass} w-16`}
-                              />
-                              min
-                            </label>
-                            {/* Staff see the result of their own inputs
-                                immediately — no head math. */}
-                            <span className="font-mono text-xs text-text-muted">
-                              {departure ? `→ departs ${departure}` : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setVehicles((current) =>
-                                  current.map((entry) =>
-                                    entry.key === block.key
-                                      ? {
-                                          ...entry,
-                                          runs: entry.runs.filter(
-                                            (r) => r.key !== run.key,
-                                          ),
-                                        }
-                                      : entry,
-                                  ),
-                                )
-                              }
-                              aria-label={`Remove vehicle ${blockIndex + 1} departure ${runIndex + 1}`}
-                              title="Remove departure"
-                              className="rounded-md p-1 hover:opacity-75"
-                              style={{ color: 'var(--color-alert)' }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateBlock(block.key, {
-                          runs: [...block.runs, makeRun()],
-                        })
-                      }
-                      className="mt-2 flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-sm text-text-muted hover:bg-white/5"
-                    >
-                      <Plus size={14} />
-                      Add a departure time
-                    </button>
-                  </div>
                 </fieldset>
               ))}
             </div>

@@ -3,8 +3,8 @@ import {
   googleMapsClient,
   type GoogleRouteResult,
 } from '@/lib/googleMapsClient';
-import { nextOccurrenceOf } from '@/lib/nextOccurrence';
 import { createTripInputSchema, formatInputIssues } from '@/lib/tripInput';
+import { resolvePredictionsForClocks } from '@/lib/tripPredictionResolver';
 import type { Trip } from '@/lib/trips';
 import { createTrip, listTrips } from '@/lib/tripsStore';
 import { getVehicleRoster } from '@/lib/vehicleRoster';
@@ -107,48 +107,23 @@ export async function POST(request: Request) {
     // Phase K1: traffic-aware arrival prediction, ONE Google call per
     // DISTINCT departure clock time (arrival + wait) — several runs across
     // several vehicles sharing a departure time share one prediction.
-    // First waypoint → last waypoint direct (no intermediates): this is
-    // the single "estimated arrival at the final stop" number, not a
-    // per-leg breakdown. Best-effort by design: a failed prediction is
-    // logged server-side and that entry simply stores no prediction —
-    // trip creation NEVER fails because of this block.
-    // Both raw numbers from the ONE response per distinct departure —
-    // stored exactly as Google returned them. The bus-vs-car buffer is a
-    // display-time adjustment (lib/departureTime + tripEstimateConfig),
-    // never baked into stored data: the record of what Google actually
-    // said stays intact, separate from how we choose to present it.
-    const departurePredictions = new Map<
-      string,
-      { predictedDurationSeconds: number; staticDurationSeconds: number }
-    >();
-    const distinctDepartureClocks = [
-      ...new Set(
-        parsed.data.vehicles.flatMap((assignment) =>
-          assignment.schedule.map((entry) =>
-            computeDepartureClock(entry.arrivalTime, entry.waitMinutes),
-          ),
-        ),
-      ),
-    ];
+    // Phase O1: the call/dedup/best-effort logic itself now lives in
+    // resolvePredictionsForClocks, shared with per-run editing; creation
+    // starts from an EMPTY known-predictions map because nothing about
+    // this trip exists yet, so every distinct clock is a fresh question.
     const firstWaypoint = parsed.data.waypoints[0];
     const lastWaypoint =
       parsed.data.waypoints[parsed.data.waypoints.length - 1];
-    await Promise.all(
-      distinctDepartureClocks.map(async (departureClock) => {
-        try {
-          const prediction = await googleMapsClient.predictArrival(
-            { lat: firstWaypoint.lat, lng: firstWaypoint.lng },
-            { lat: lastWaypoint.lat, lng: lastWaypoint.lng },
-            nextOccurrenceOf(departureClock, new Date()),
-          );
-          departurePredictions.set(departureClock, prediction);
-        } catch (error) {
-          console.error(
-            `create-trip arrival prediction failed (${parsed.data.name}, departure ${departureClock}):`,
-            error,
-          );
-        }
-      }),
+    const departurePredictions = await resolvePredictionsForClocks(
+      parsed.data.vehicles.flatMap((assignment) =>
+        assignment.schedule.map((entry) =>
+          computeDepartureClock(entry.arrivalTime, entry.waitMinutes),
+        ),
+      ),
+      firstWaypoint,
+      lastWaypoint,
+      new Map(),
+      parsed.data.name,
     );
 
     const trip: Trip = {
@@ -182,9 +157,12 @@ export async function POST(request: Request) {
           ? { cardLabel: assignment.cardLabel }
           : {}),
         schedule: assignment.schedule.map((entry) => {
-          const predicted = departurePredictions.get(
-            computeDepartureClock(entry.arrivalTime, entry.waitMinutes),
-          );
+          // null (attempted, failed) and undefined (never asked) both mean
+          // the same thing here: the fields stay ABSENT.
+          const predicted =
+            departurePredictions.get(
+              computeDepartureClock(entry.arrivalTime, entry.waitMinutes),
+            ) ?? null;
           return {
             // Each run gets its own stable id — future per-run edits/links
             // need something to point at.
@@ -193,7 +171,7 @@ export async function POST(request: Request) {
             waitMinutes: entry.waitMinutes,
             // Both absent (not zero/null) when the prediction call failed —
             // the fields' contract in lib/trips.ts.
-            ...(predicted !== undefined
+            ...(predicted !== null
               ? {
                   predictedArrivalDurationSeconds:
                     predicted.predictedDurationSeconds,

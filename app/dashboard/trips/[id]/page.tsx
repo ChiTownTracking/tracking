@@ -1,5 +1,6 @@
 'use client';
 
+import { Pencil, Plus } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -7,17 +8,29 @@ import ConfirmActionRow from '@/components/ConfirmActionRow';
 import DashboardNav from '@/components/DashboardNav';
 import { fieldInputClass } from '@/components/formStyles';
 import VehiclePicker from '@/components/VehiclePicker';
+import VehicleScheduleBlock from '@/components/VehicleScheduleBlock';
 import { formatClock12Hour } from '@/lib/clockFormat';
+import { toDatetimeLocalValue } from '@/lib/datetimeLocalDefault';
+import { computeOccurrenceValidity } from '@/lib/scheduleOccurrence';
 import { getTripStatus, type TripStatus } from '@/lib/scheduleStatus';
 import { redirectIfSessionExpired } from '@/lib/sessionExpiry';
 import type { Trip, ScheduleEntry, VehicleAssignment } from '@/lib/trips';
+import {
+  computeDeparture,
+  findVehicleBlockBlocker,
+  makeVehicleBlock,
+  parseWaitMinutes,
+  toVehiclePayload,
+} from '@/lib/vehicleBlock';
 import type { RosterVehicle } from '@/lib/vehicleRoster';
 import { useTheme } from '@/lib/useTheme';
 
 // Phase L2: the staff detail view for one trip — the UI over L1's
 // cancel/replace API. Everything shown comes from the single staff GET;
-// the two PATCH actions refetch it on success so the page always reflects
-// the stored document, never an optimistic guess.
+// every action refetches it on success so the page always reflects the
+// stored document, never an optimistic guess. Phase O3 added the three
+// editing surfaces over the O1/O2 endpoints: the trip's own name and
+// window, per-run retiming, and putting another vehicle on the trip.
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -28,6 +41,16 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(`request failed (${res.status})`);
   }
   return res.json();
+}
+
+// Every action on this page reports failure the same way: the API's own
+// message when it sent one (it names the real problem — an in-progress
+// run, a duplicate vehicle), a generic line otherwise.
+async function readError(res: Response): Promise<string> {
+  const body = await res.json().catch(() => null);
+  return body && typeof body.error === 'string'
+    ? body.error
+    : `Request failed (${res.status})`;
 }
 
 // Cancelled wins outright: a cancelled run reads as cancelled no matter
@@ -54,6 +77,32 @@ function entryStatusLabel(
   ];
 }
 
+// Phase O3: exactly the two conditions the schedule PATCH endpoint refuses
+// on — deliberately computed the SAME window-aware way the route does
+// (computeOccurrenceValidity, not a bare clock read), so the edit
+// affordance is never offered on a run the API would reject, and never
+// withheld from one it would accept. A run whose today-occurrence falls
+// outside the trip's window isn't happening, so it stays editable even
+// when the wall clock sits inside its span.
+function canEditRun(
+  entry: ScheduleEntry,
+  trip: Trip,
+  now: Date,
+): boolean {
+  if (entry.cancelled) {
+    return false;
+  }
+  const validity = computeOccurrenceValidity(
+    entry,
+    0,
+    trip.windowStart,
+    trip.windowEnd,
+    entry.waitMinutes * 60 + trip.totalDurationSeconds,
+    now,
+  );
+  return !(validity.withinWindow && validity.status === 'in-progress');
+}
+
 // Same upcoming-only rule the cancel/replace routes apply server-side, so
 // the disabled states match what the API would actually do.
 function countUpcoming(
@@ -70,6 +119,230 @@ function countUpcoming(
         now,
       ) === 'upcoming',
   ).length;
+}
+
+// Phase O3: the trip's own name and active window. Two independent Save
+// actions on one panel — renaming and rewindowing are unrelated decisions
+// and shouldn't be forced into a single submit. Same plain-field-plus-own-
+// button pattern the card label already uses.
+function TripHeaderEditor({
+  trip,
+  onChanged,
+}: {
+  trip: Trip;
+  onChanged: () => Promise<unknown>;
+}) {
+  const [name, setName] = useState(trip.name);
+  // datetime-local wants LOCAL wall-clock text; the stored values are
+  // absolute ISO. Pre-N3 trips have no window at all — those fields start
+  // empty and only what staff fill in gets sent.
+  const [windowStart, setWindowStart] = useState(
+    trip.windowStart ? toDatetimeLocalValue(new Date(trip.windowStart)) : '',
+  );
+  const [windowEnd, setWindowEnd] = useState(
+    trip.windowEnd ? toDatetimeLocalValue(new Date(trip.windowEnd)) : '',
+  );
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [windowBusy, setWindowBusy] = useState(false);
+  const [windowSaved, setWindowSaved] = useState(false);
+  const [windowError, setWindowError] = useState<string | null>(null);
+  const [confirmingEarlyEnd, setConfirmingEarlyEnd] = useState(false);
+
+  // Returns the message to show, or null when it worked.
+  async function patchTrip(body: Record<string, unknown>): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/internal/trips/${trip.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (redirectIfSessionExpired(res.status)) {
+        return null;
+      }
+      if (!res.ok) {
+        return await readError(res);
+      }
+      await onChanged();
+      return null;
+    } catch {
+      return 'Request failed — please try again.';
+    }
+  }
+
+  async function saveName() {
+    setNameBusy(true);
+    setNameSaved(false);
+    setNameError(null);
+    const message = await patchTrip({ name });
+    setNameError(message);
+    setNameSaved(message === null);
+    setNameBusy(false);
+  }
+
+  async function saveWindow() {
+    setWindowBusy(true);
+    setWindowSaved(false);
+    setWindowError(null);
+    const message = await patchTrip({
+      // datetime-local values are timezone-less; normalize to UTC ISO so
+      // the server stores an absolute window (same as create-trip).
+      ...(windowStart !== ''
+        ? { windowStart: new Date(windowStart).toISOString() }
+        : {}),
+      ...(windowEnd !== ''
+        ? { windowEnd: new Date(windowEnd).toISOString() }
+        : {}),
+    });
+    setWindowError(message);
+    setWindowSaved(message === null);
+    setConfirmingEarlyEnd(false);
+    setWindowBusy(false);
+  }
+
+  // Client-side mirror of the API's rules — the server is still the
+  // authority, this just avoids an obviously-doomed round trip.
+  const windowBlocker =
+    windowStart === '' && windowEnd === ''
+      ? 'Set a window start and end.'
+      : windowStart !== '' &&
+          windowEnd !== '' &&
+          new Date(windowEnd).getTime() <= new Date(windowStart).getTime()
+        ? 'Window end must be after window start.'
+        : null;
+
+  // An end that's already behind us kills the public link the moment it
+  // saves — a real consequence for anyone holding it, so it goes through
+  // the confirm row. A trip whose window has ALREADY ended is a different
+  // matter: nothing changes for anyone, so it saves directly, as does any
+  // extension.
+  const nowMs = Date.now();
+  const endsInPast =
+    windowEnd !== '' && new Date(windowEnd).getTime() < nowMs;
+  const alreadyEnded =
+    trip.windowEnd !== undefined && new Date(trip.windowEnd).getTime() < nowMs;
+  const needsEarlyEndConfirm = endsInPast && !alreadyEnded;
+
+  return (
+    <section className="rounded-md border border-white/10 p-4">
+      <label className="block">
+        <span className="mb-1.5 block text-xs text-text-muted">Trip name</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              setNameSaved(false);
+            }}
+            placeholder="North Shore Run"
+            className={`flex-1 ${fieldInputClass}`}
+          />
+          <button
+            type="button"
+            onClick={saveName}
+            disabled={nameBusy || name.trim() === ''}
+            title={name.trim() === '' ? 'The trip needs a name.' : undefined}
+            className="rounded-md border border-white/10 px-3 py-1.5 text-sm font-medium disabled:opacity-50 hover:bg-white/5"
+          >
+            {nameBusy ? 'Saving…' : 'Save name'}
+          </button>
+        </div>
+      </label>
+      {nameSaved && (
+        <p className="mt-1 text-xs" style={{ color: 'var(--color-live)' }}>
+          Name saved.
+        </p>
+      )}
+      {nameError && (
+        <p className="mt-1 text-sm" style={{ color: 'var(--color-alert)' }}>
+          {nameError}
+        </p>
+      )}
+
+      <div className="mt-4">
+        <span className="mb-1.5 block text-xs text-text-muted">
+          Tracking window
+        </span>
+        <p className="mb-2 text-xs text-text-muted">
+          When the public trip link is live — before it starts and after it
+          ends, the link shows a status message instead of the map.
+        </p>
+        {/* Stacked below sm: datetime-local inputs have a large intrinsic
+            min-width and can't share a 375px row. */}
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <label className="block flex-1">
+            <span className="mb-1.5 block text-xs text-text-muted">
+              Window start
+            </span>
+            <input
+              type="datetime-local"
+              value={windowStart}
+              onChange={(event) => {
+                setWindowStart(event.target.value);
+                setWindowSaved(false);
+                setConfirmingEarlyEnd(false);
+              }}
+              className={fieldInputClass}
+            />
+          </label>
+          <label className="block flex-1">
+            <span className="mb-1.5 block text-xs text-text-muted">
+              Window end
+            </span>
+            <input
+              type="datetime-local"
+              value={windowEnd}
+              onChange={(event) => {
+                setWindowEnd(event.target.value);
+                setWindowSaved(false);
+                setConfirmingEarlyEnd(false);
+              }}
+              className={fieldInputClass}
+            />
+          </label>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              needsEarlyEndConfirm ? setConfirmingEarlyEnd(true) : saveWindow()
+            }
+            disabled={windowBusy || windowBlocker !== null}
+            className="rounded-md border border-white/10 px-3 py-1.5 text-sm font-medium disabled:opacity-50 hover:bg-white/5"
+          >
+            {windowBusy ? 'Saving…' : 'Save window'}
+          </button>
+          {windowBlocker && (
+            <span className="text-xs text-text-muted">{windowBlocker}</span>
+          )}
+        </div>
+        {confirmingEarlyEnd && (
+          <ConfirmActionRow
+            className="mt-3"
+            message="This will end the trip's public link immediately — anyone holding it will see that tracking has ended."
+            confirmLabel="Confirm — end the link now"
+            busyLabel="Saving…"
+            dismissLabel="Keep it live"
+            busy={windowBusy}
+            onConfirm={saveWindow}
+            onDismiss={() => setConfirmingEarlyEnd(false)}
+          />
+        )}
+        {windowSaved && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-live)' }}>
+            Window saved.
+          </p>
+        )}
+        {windowError && (
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-alert)' }}>
+            {windowError}
+          </p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function VehicleSection({
@@ -104,6 +377,13 @@ function VehicleSection({
   const [pickerQuery, setPickerQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase O3: which run (if any) is open for retiming, and its draft
+  // values. One at a time — an inline row that replaces the run it edits.
+  const [editingRunId, setEditingRunId] = useState<string | null>(null);
+  const [runArrival, setRunArrival] = useState('');
+  const [runWait, setRunWait] = useState('0');
+  const [runBusy, setRunBusy] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const rosterVehicle = roster?.find(
     (vehicle) => vehicle.vehicleId === assignment.vehicleId,
@@ -140,12 +420,7 @@ function VehicleSection({
         return;
       }
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(
-          body && typeof body.error === 'string'
-            ? body.error
-            : `Request failed (${res.status})`,
-        );
+        setError(await readError(res));
         return;
       }
       await onChanged();
@@ -178,12 +453,7 @@ function VehicleSection({
         return;
       }
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setLabelError(
-          body && typeof body.error === 'string'
-            ? body.error
-            : `Request failed (${res.status})`,
-        );
+        setLabelError(await readError(res));
         return;
       }
       await onChanged();
@@ -192,6 +462,52 @@ function VehicleSection({
       setLabelError('Request failed — please try again.');
     } finally {
       setLabelBusy(false);
+    }
+  }
+
+  function openRunEdit(entry: ScheduleEntry) {
+    setEditingRunId(entry.id);
+    setRunArrival(entry.arrivalTime);
+    setRunWait(String(entry.waitMinutes));
+    setRunError(null);
+  }
+
+  async function saveRun(entryId: string) {
+    const wait = parseWaitMinutes(runWait);
+    if (!/^\d{2}:\d{2}$/.test(runArrival) || wait === null) {
+      setRunError(
+        'Enter an arrival time and a whole number of wait minutes (0 or more).',
+      );
+      return;
+    }
+    setRunBusy(true);
+    setRunError(null);
+    try {
+      const res = await fetch(
+        `/api/internal/trips/${trip.id}/vehicles/${assignment.vehicleId}/schedule/${entryId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ arrivalTime: runArrival, waitMinutes: wait }),
+        },
+      );
+      if (redirectIfSessionExpired(res.status)) {
+        return;
+      }
+      if (!res.ok) {
+        // The API names the real problem — e.g. a run that became
+        // in-progress between page load and save.
+        setRunError(await readError(res));
+        return;
+      }
+      // Refetch so the new time AND its refreshed predicted arrival land
+      // together, straight from the stored document.
+      await onChanged();
+      setEditingRunId(null);
+    } catch {
+      setRunError('Request failed — please try again.');
+    } finally {
+      setRunBusy(false);
     }
   }
 
@@ -268,6 +584,73 @@ function VehicleSection({
       ) : (
         <ul className="mt-3 flex flex-col gap-1">
           {assignment.schedule.map((entry) => {
+            // The run being retimed swaps its static row for the edit
+            // form — same compact time/wait/departure-preview shape the
+            // create-trip form uses, so a run reads the same way wherever
+            // it's being edited.
+            if (editingRunId === entry.id) {
+              const departure = computeDeparture(runArrival, runWait);
+              return (
+                <li
+                  key={entry.id}
+                  className="flex flex-col gap-2 rounded-md bg-panel p-2"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="time"
+                      value={runArrival}
+                      onChange={(event) => setRunArrival(event.target.value)}
+                      aria-label={`New arrival time for the ${formatClock12Hour(entry.arrivalTime)} run`}
+                      className={`${fieldInputClass} w-auto`}
+                    />
+                    <label className="flex items-center gap-1.5 text-xs text-text-muted">
+                      wait
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={runWait}
+                        onChange={(event) => setRunWait(event.target.value)}
+                        aria-label={`New wait minutes for the ${formatClock12Hour(entry.arrivalTime)} run`}
+                        className={`${fieldInputClass} w-16`}
+                      />
+                      min
+                    </label>
+                    <span className="font-mono text-xs text-text-muted">
+                      {departure ? `→ departs ${departure}` : ''}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => saveRun(entry.id)}
+                      disabled={runBusy}
+                      className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                      style={{ background: 'var(--color-accent)' }}
+                    >
+                      {runBusy ? 'Saving…' : 'Save run'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingRunId(null)}
+                      disabled={runBusy}
+                      className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-text-muted hover:bg-white/5"
+                    >
+                      Never mind
+                    </button>
+                  </div>
+                  {runError && (
+                    <p
+                      className="text-sm"
+                      style={{ color: 'var(--color-alert)' }}
+                    >
+                      {runError}
+                    </p>
+                  )}
+                </li>
+              );
+            }
+
             const status = entryStatusLabel(
               entry,
               trip.totalDurationSeconds,
@@ -299,6 +682,20 @@ function VehicleSection({
                 >
                   {status}
                 </span>
+                {/* Offered ONLY where the API would accept it — no form
+                    that opens just to fail on save. */}
+                {canEditRun(entry, trip, now) && (
+                  <button
+                    type="button"
+                    onClick={() => openRunEdit(entry)}
+                    disabled={runBusy}
+                    aria-label={`Edit the ${formatClock12Hour(entry.arrivalTime)} run`}
+                    title="Change this run's time"
+                    className="ml-auto rounded-md p-1 text-text-muted hover:opacity-75"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
               </li>
             );
           })}
@@ -417,6 +814,140 @@ function VehicleSection({
   );
 }
 
+// Phase O3: put ANOTHER vehicle on this trip. Distinct from Replace, which
+// moves an existing vehicle's runs elsewhere — this adds a vehicle that
+// wasn't here before, on its own schedule, over the same physical path.
+// The composer itself is the create-trip form's vehicle block, shared
+// rather than rebuilt.
+function AddVehicleSection({
+  trip,
+  roster,
+  rosterLoading,
+  rosterFailed,
+  onChanged,
+}: {
+  trip: Trip;
+  roster: RosterVehicle[] | undefined;
+  rosterLoading: boolean;
+  rosterFailed: boolean;
+  onChanged: () => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [block, setBlock] = useState(makeVehicleBlock);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const assignedIds = new Set(trip.vehicles.map((v) => v.vehicleId));
+  // One assignment per vehicle per trip: the API rejects a duplicate, so
+  // vehicles already here are kept out of the picker entirely rather than
+  // offered as a dead end (same treatment Replace gives self-replacement).
+  const available = roster?.filter(
+    (vehicle) => !assignedIds.has(vehicle.vehicleId),
+  );
+
+  const blocker =
+    findVehicleBlockBlocker(block, 'New vehicle') ??
+    // Belt and braces: a refetch could add the picked vehicle to the trip
+    // while this form sits open, and the filtered picker wouldn't know.
+    (block.vehicleId !== null && assignedIds.has(block.vehicleId)
+      ? 'That vehicle is already on this trip — edit its existing schedule instead.'
+      : null);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/internal/trips/${trip.id}/vehicles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toVehiclePayload(block)),
+      });
+      if (redirectIfSessionExpired(res.status)) {
+        return;
+      }
+      if (!res.ok) {
+        setError(await readError(res));
+        return;
+      }
+      // Refetch: the new vehicle appears above as its own section, in the
+      // same style as every other one.
+      await onChanged();
+      setBlock(makeVehicleBlock());
+      setOpen(false);
+    } catch {
+      setError('Request failed — please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 self-start rounded-md border border-white/10 px-3 py-1.5 text-sm text-text-muted hover:bg-white/5"
+      >
+        <Plus size={14} />
+        Add another vehicle
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-md border border-white/10 p-4"
+    >
+      <h3 className="font-heading text-base font-medium">
+        Add another vehicle
+      </h3>
+      <p className="mb-3 mt-1 text-xs text-text-muted">
+        Runs the same route as the rest of this trip, on its own schedule.
+      </p>
+
+      <VehicleScheduleBlock
+        block={block}
+        onChange={(patch) => setBlock((current) => ({ ...current, ...patch }))}
+        roster={available}
+        rosterLoading={rosterLoading}
+        rosterFailed={rosterFailed}
+        labelPrefix="New vehicle"
+      />
+
+      {error && (
+        <p className="mt-3 text-sm" style={{ color: 'var(--color-alert)' }}>
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          disabled={busy || blocker !== null}
+          className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          style={{ background: 'var(--color-accent)' }}
+        >
+          {busy ? 'Adding…' : 'Add vehicle to trip'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+          }}
+          disabled={busy}
+          className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-text-muted hover:bg-white/5"
+        >
+          Never mind
+        </button>
+        {blocker && <span className="text-xs text-text-muted">{blocker}</span>}
+      </div>
+    </form>
+  );
+}
+
 export default function TripDetailPage() {
   // Applies the persisted app theme on this page too.
   useTheme();
@@ -456,6 +987,15 @@ export default function TripDetailPage() {
             </p>
 
             <div className="mt-4 flex flex-col gap-4">
+              <TripHeaderEditor
+                // Re-seed the fields from the stored document whenever it
+                // changes underneath (same remount-on-refetch reasoning as
+                // the vehicle sections below).
+                key={`${trip.name}-${trip.windowStart ?? ''}-${trip.windowEnd ?? ''}`}
+                trip={trip}
+                onChanged={() => mutate()}
+              />
+
               {trip.vehicles.map((assignment) => (
                 <VehicleSection
                   // Remount on refetch so the note field re-seeds from the
@@ -469,6 +1009,14 @@ export default function TripDetailPage() {
                   onChanged={() => mutate()}
                 />
               ))}
+
+              <AddVehicleSection
+                trip={trip}
+                roster={roster}
+                rosterLoading={rosterLoading}
+                rosterFailed={Boolean(rosterError)}
+                onChanged={() => mutate()}
+              />
             </div>
           </>
         )}

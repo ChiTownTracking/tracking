@@ -63,7 +63,7 @@ interface TripVehicleDetail {
   tomorrowSchedule: TripCardScheduleEntry[];
 }
 
-interface TripDetailResponse {
+interface TripDetailActive {
   trip: {
     id: string;
     name: string;
@@ -74,6 +74,17 @@ interface TripDetailResponse {
   };
   vehicles: TripVehicleDetail[];
 }
+
+// The endpoint has TWO answer shapes. Phase N3 gates it on the trip's own
+// active window, and outside that window it answers 200 with a status-only
+// payload carrying no trip and no vehicles — deliberately, so nothing leaks
+// before the window opens or after it closes. It is the same minimal shape
+// /api/track returns and TrackMap already renders. This page must
+// discriminate before touching any trip field; assuming the active shape
+// unconditionally is what made an out-of-window link crash on data.trip.id.
+type TripDetailResponse =
+  | { status: 'not_started' | 'ended'; message: string }
+  | TripDetailActive;
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
@@ -100,6 +111,13 @@ export default function TripPage() {
     { refreshInterval: 30_000 },
   );
 
+  // Discriminate the two shapes ONCE, here: every read below goes through
+  // `detail`, so an out-of-window response can never reach code that
+  // assumes a trip. Same `in`-operator narrowing the bare track page uses
+  // on its own two-shape endpoint.
+  const detail = data && 'trip' in data ? data : null;
+  const windowNotice = data && !('trip' in data) ? data.message : null;
+
   // A per-vehicle Center request: seq bumps make the same vehicle
   // re-clickable; the map centers once per click — no continuous follow on
   // this shared view. Cleared by the map's fit-everything button.
@@ -119,22 +137,22 @@ export default function TripPage() {
   // Adapt the detail into BoardMap's existing props: the one route, and one
   // "trip" entry per vehicle (BoardMap's unit of rendering is a moving
   // vehicle — exactly what each assignment is now).
-  const mapRoutes: BoardRouteSummary[] = data
+  const mapRoutes: BoardRouteSummary[] = detail
     ? [
         {
-          id: data.trip.id,
-          name: data.trip.name,
-          geometry: data.trip.geometry,
-          stops: data.trip.stops,
+          id: detail.trip.id,
+          name: detail.trip.name,
+          geometry: detail.trip.geometry,
+          stops: detail.trip.stops,
         },
       ]
     : [];
-  const mapTrips: BoardTripSummary[] = data
-    ? data.vehicles.map((vehicle, index) => ({
+  const mapTrips: BoardTripSummary[] = detail
+    ? detail.vehicles.map((vehicle, index) => ({
         // vehicleId alone could repeat if staff assign one vehicle twice;
         // the index keeps marker keys and focus targets unambiguous.
         id: `${index}-${vehicle.vehicleId}`,
-        routeId: data.trip.id,
+        routeId: detail.trip.id,
         vehicleLabel: vehicle.vehicleLabel,
         position: vehicle.position,
         positionConfident: vehicle.positionConfident,
@@ -143,7 +161,7 @@ export default function TripPage() {
         stopEtas: vehicle.stopEtas,
       }))
     : [];
-  const stopLabels = data ? data.trip.stops.map((stop) => stop.label) : [];
+  const stopLabels = detail ? detail.trip.stops.map((stop) => stop.label) : [];
 
   return (
     <div className="customer-theme min-h-screen">
@@ -155,7 +173,7 @@ export default function TripPage() {
           ChiTown Tracking
         </p>
         <h1 className="customer-heading mt-1 text-2xl">
-          {data?.trip.name ?? ' '}
+          {detail?.trip.name ?? ' '}
         </h1>
       </header>
       {/* Mobile-first: the real-world use is a phone at a stop — map at a
@@ -169,7 +187,12 @@ export default function TripPage() {
               ? "This link isn't valid. Please contact ChiTown Trolley if you believe this is a mistake."
               : 'We had trouble loading the trip. Retrying automatically…'}
           </Notice>
-        ) : !data ? null : (
+        ) : windowNotice !== null ? (
+          // Before the window opens or after it closes: the server's own
+          // customer-facing wording and nothing else — no map, no cards.
+          // Exactly the treatment TrackMap gives this identical shape.
+          <Notice>{windowNotice}</Notice>
+        ) : !detail ? null : (
           <>
             <GoogleMapsProvider>
               <BoardMap
@@ -179,10 +202,10 @@ export default function TripPage() {
                 onClearFocus={() => setFocus(null)}
               />
             </GoogleMapsProvider>
-            {data.vehicles.length === 0 && (
+            {detail.vehicles.length === 0 && (
               <Notice>No vehicles are assigned to this trip yet.</Notice>
             )}
-            {data.vehicles.map((vehicle, index) => (
+            {detail.vehicles.map((vehicle, index) => (
               <TripStatusCard
                 key={mapTrips[index].id}
                 vehicleLabel={vehicle.vehicleLabel}
@@ -197,7 +220,7 @@ export default function TripPage() {
                 destinationLabel={
                   stopLabels[stopLabels.length - 1] ?? 'the final stop'
                 }
-                totalDurationSeconds={data.trip.totalDurationSeconds}
+                totalDurationSeconds={detail.trip.totalDurationSeconds}
                 // Same index → same color as this vehicle's map marker.
                 color={getRouteColor(index)}
                 now={now}
