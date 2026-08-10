@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Vehicle } from '@/lib/liveVehicles';
-import type { Trip } from '@/lib/trips';
+import type { ScheduleEntry, Trip } from '@/lib/trips';
 
 vi.mock('@/lib/liveVehicles', () => ({
   getLiveVehicles: vi.fn(),
@@ -465,6 +465,359 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(detail.vehicles[0].serviceNote).toBe('Replaced by a spare vehicle');
     // Live fields still honest — the vehicle exists and reports.
     expect(detail.vehicles[0].position).not.toBeNull();
+  });
+
+  // Phase N7's READ step: detected / missed / pending for the ACTIVE run,
+  // against the same pinned noon-Chicago clock (Fri, Jul 17 2026 — which is
+  // "2026-07-17" as a Chicago-anchored date stamp).
+  //
+  // One vehicle, one run, so "the active run" is never in question. 11:55 +
+  // 10 min wait + 10 min drive is in progress at noon; its detection window
+  // closes at 12:05, five minutes after `now`.
+  function tripWithActiveRun(overrides: Partial<ScheduleEntry> = {}): Trip {
+    return {
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            { id: 'run-a2', arrivalTime: '11:55', waitMinutes: 10, ...overrides },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('DETECTED: a same-date stored detection surfaces as a formatted 12-hour clock', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse(
+      tripWithActiveRun({
+        actualPickupAt: '2026-07-17T16:57:00.000Z', // 11:57 AM Chicago
+        actualPickupDate: '2026-07-17',
+      }),
+    );
+
+    expect(detail.vehicles[0].actualPickupClock).toBe('11:57 AM');
+    // Detected is not missed — the two states are exclusive.
+    expect(detail.vehicles[0]).not.toHaveProperty('pickupMissed');
+  });
+
+  it('a stale detection from a DIFFERENT date is PENDING, not detected', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    // Yesterday's stamp on the same daily-recurring run: today's occurrence
+    // has NOT been confirmed, and must not inherit it.
+    const detail = await buildTripDetailResponse(
+      tripWithActiveRun({
+        actualPickupAt: '2026-07-16T16:57:00.000Z',
+        actualPickupDate: '2026-07-16',
+      }),
+    );
+
+    expect(detail.vehicles[0]).not.toHaveProperty('actualPickupClock');
+    // Still inside today's window (closes 12:05) — pending, not missed.
+    expect(detail.vehicles[0]).not.toHaveProperty('pickupMissed');
+  });
+
+  it('MISSED: past the 10-minute cutoff with nothing detected', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+    // 11:45 arrival → the detection window closed at 11:55, five minutes
+    // before `now`; the run itself is still in progress until 12:05.
+    const detail = await buildTripDetailResponse({
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [{ id: 'run-late', arrivalTime: '11:45', waitMinutes: 10 }],
+        },
+      ],
+    });
+
+    expect(detail.vehicles[0].pickupMissed).toBe(true);
+    expect(detail.vehicles[0]).not.toHaveProperty('actualPickupClock');
+  });
+
+  it('PENDING: well inside the window with nothing detected yet stays pending (no early MISSED)', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse(tripWithActiveRun());
+
+    // Neither field: the card keeps its existing predicted-arrival display,
+    // exactly as before this phase.
+    expect(detail.vehicles[0]).not.toHaveProperty('actualPickupClock');
+    expect(detail.vehicles[0]).not.toHaveProperty('pickupMissed');
+  });
+
+  // Phase N7: the schedule ROWS carry each run's own confirmed pickup —
+  // and the emphasized active-run block's predicted RANGE, a separate
+  // concern rendered only while a run is in progress, is untouched by that
+  // swap. Both live on the same row object, so this pins them apart.
+  it('schedule rows carry actualPickupClock while the active-run predicted RANGE stays intact', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse({
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            // In progress at noon, detected at 11:57 today, AND carrying
+            // the same real prediction pair the range test above uses.
+            {
+              id: 'run-a2',
+              arrivalTime: '11:55',
+              waitMinutes: 10,
+              actualPickupAt: '2026-07-17T16:57:00.000Z',
+              actualPickupDate: '2026-07-17',
+              predictedArrivalDurationSeconds: 1061,
+              predictedArrivalStaticDurationSeconds: 1332,
+            },
+            // Later today, nothing detected — the row stays blank rather
+            // than borrowing anything.
+            { id: 'run-a3', arrivalTime: '14:00', waitMinutes: 0 },
+          ],
+        },
+      ],
+    });
+
+    const [detected, undetected] = detail.vehicles[0].schedule;
+    expect(detected.actualPickupClock).toBe('11:57 AM');
+    expect(undetected).not.toHaveProperty('actualPickupClock');
+
+    // Unaffected: still the buffered early/late pair from the 12:05
+    // departure, exactly as before this change.
+    expect(detected.predictedArrivalRange).toEqual({
+      early: '12:24 PM',
+      late: '12:29 PM',
+    });
+
+    // And the headline agrees with its own row — one date-matching check
+    // behind both.
+    expect(detail.vehicles[0].actualPickupClock).toBe('11:57 AM');
+  });
+
+  it("TOMORROW's rows never inherit today's detection", async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse({
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            {
+              id: 'run-a2',
+              arrivalTime: '11:55',
+              waitMinutes: 10,
+              actualPickupAt: '2026-07-17T16:57:00.000Z',
+              actualPickupDate: '2026-07-17',
+            },
+          ],
+        },
+      ],
+    });
+
+    const vehicle = detail.vehicles[0];
+    expect(vehicle.schedule[0].actualPickupClock).toBe('11:57 AM');
+    // The SAME entry, one day on: not detected, not yet.
+    expect(vehicle.tomorrowSchedule[0]).not.toHaveProperty('actualPickupClock');
+  });
+
+  // Phase P: departedPickup, read from the STORED departure stamp rather
+  // than from the current fix. Stop A is 41.0/-87.65; the live helper puts
+  // a vehicle on that same meridian, so latitude alone sets the distance.
+  // 41.0002 is ~22 m (inside the 100 m radius), 41.005 is ~555 m (well
+  // outside). At noon the 11:55 run's window is still open until 12:05,
+  // so live position is the only thing varying below — which is exactly
+  // what must NOT move this flag.
+  const ARRIVED_TODAY = {
+    actualPickupAt: '2026-07-17T16:57:00.000Z', // 11:57 AM Chicago
+    actualPickupDate: '2026-07-17',
+  };
+  const DEPARTED_TODAY = {
+    actualDepartureAt: '2026-07-17T16:59:00.000Z', // 11:59 AM Chicago
+    actualDepartureDate: '2026-07-17',
+  };
+
+  // Deliberately NO default stamps: every caller states exactly which
+  // lifecycle facts exist, so a stage called "nothing confirmed" really
+  // has nothing on it.
+  function tripWithRun(stamps: Partial<ScheduleEntry> = {}): Trip {
+    return {
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            {
+              id: 'run-a2',
+              arrivalTime: '11:55',
+              waitMinutes: 10,
+              ...stamps,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('an arrived run with no departure stamp is not departed — the card stays present-tense', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveVehicle('1000067169', 41.0002, 0),
+    ]);
+
+    const vehicle = (await buildTripDetailResponse(tripWithRun(ARRIVED_TODAY)))
+      .vehicles[0];
+
+    expect(vehicle.departedPickup).toBe(false);
+    expect(vehicle.actualPickupClock).toBe('11:57 AM');
+    expect(vehicle).not.toHaveProperty('pickupMissed');
+  });
+
+  it('a stored departure makes it departed while the arrival timestamp survives untouched', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveVehicle('1000067169', 41.005, 20),
+    ]);
+
+    const vehicle = (await buildTripDetailResponse(tripWithRun({ ...ARRIVED_TODAY, ...DEPARTED_TODAY })))
+      .vehicles[0];
+
+    expect(vehicle.departedPickup).toBe(true);
+    // The arrival record does NOT go away with the bus — this is what the
+    // card shows past-tense as "Picked up at 11:57 AM".
+    expect(vehicle.actualPickupClock).toBe('11:57 AM');
+  });
+
+  // THE regression this phase exists for: the sticky stored fact beats any
+  // live re-check, so a wandering fix can't bounce the display backwards.
+  it('REGRESSION: a departed vehicle that drifts back INSIDE the radius stays departed', async () => {
+    // Physically back at the stop, well inside the window — every live
+    // signal says "at the pickup" again. The stored fact says otherwise,
+    // and the stored fact is the one that counts.
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveVehicle('1000067169', 41.0002, 0),
+    ]);
+
+    const vehicle = (await buildTripDetailResponse(tripWithRun({ ...ARRIVED_TODAY, ...DEPARTED_TODAY })))
+      .vehicles[0];
+
+    expect(vehicle.departedPickup).toBe(true);
+    expect(vehicle.actualPickupClock).toBe('11:57 AM');
+  });
+
+  it("a departure stamp from a DIFFERENT date doesn't count for today's run", async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const vehicle = (
+      await buildTripDetailResponse(
+        tripWithRun({
+          ...ARRIVED_TODAY,
+          actualDepartureAt: '2026-07-16T16:59:00.000Z',
+          actualDepartureDate: '2026-07-16',
+        }),
+      )
+    ).vehicles[0];
+
+    expect(vehicle.departedPickup).toBe(false);
+  });
+
+  it('a dark vehicle still reports the stored departure — it needs no live fix to be true', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const vehicle = (await buildTripDetailResponse(tripWithRun({ ...ARRIVED_TODAY, ...DEPARTED_TODAY })))
+      .vehicles[0];
+
+    expect(vehicle.departedPickup).toBe(true);
+    expect(vehicle.actualPickupClock).toBe('11:57 AM');
+  });
+
+  // Phase P: markerStatus walks the three stored stamps and nothing else.
+  // The vehicle sits inside the pickup radius throughout — position never
+  // changes across the four stages, so anything that moved would have to
+  // be coming from a live recheck rather than the stored facts.
+  it('markerStatus follows the full run cycle: general → at-pickup → en-route → general', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveVehicle('1000067169', 41.0002, 0),
+    ]);
+
+    const stages: [string, Partial<ScheduleEntry>][] = [
+      ['nothing confirmed', {}],
+      ['picked up', ARRIVED_TODAY],
+      ['departed', { ...ARRIVED_TODAY, ...DEPARTED_TODAY }],
+      [
+        'dropped off',
+        {
+          ...ARRIVED_TODAY,
+          ...DEPARTED_TODAY,
+          actualDropoffAt: '2026-07-17T17:09:00.000Z',
+          actualDropoffDate: '2026-07-17',
+        },
+      ],
+    ];
+
+    const observed: string[] = [];
+    for (const [, overrides] of stages) {
+      const detail = await buildTripDetailResponse(tripWithRun(overrides));
+      const vehicle = detail.vehicles[0];
+      observed.push(vehicle.markerStatus);
+
+      // The drop-off pair is INTERNAL: it must not surface at any stage,
+      // in the vehicle shape or in any schedule row.
+      expect(vehicle).not.toHaveProperty('actualDropoffAt');
+      expect(vehicle).not.toHaveProperty('actualDropoffDate');
+      for (const row of [...vehicle.schedule, ...vehicle.tomorrowSchedule]) {
+        expect(row).not.toHaveProperty('actualDropoffAt');
+        expect(row).not.toHaveProperty('actualDropoffDate');
+      }
+      // Nor do the raw departure stamps — only the derived booleans.
+      expect(vehicle).not.toHaveProperty('actualDepartureAt');
+    }
+
+    expect(observed).toEqual([
+      'general', // before anything is confirmed
+      'at-pickup', // arrived, not yet away
+      'en-route', // away, not yet finished
+      'general', // finished — the marker retires
+    ]);
+  });
+
+  it('a completed run reports departedPickup true even though its marker has gone neutral', async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const vehicle = (
+      await buildTripDetailResponse(
+        tripWithRun({
+          ...ARRIVED_TODAY,
+          ...DEPARTED_TODAY,
+          actualDropoffAt: '2026-07-17T17:09:00.000Z',
+          actualDropoffDate: '2026-07-17',
+        }),
+      )
+    ).vehicles[0];
+
+    // The card still says "Picked up at 11:57 AM" — the run finishing
+    // doesn't retract the fact that it happened.
+    expect(vehicle.markerStatus).toBe('general');
+    expect(vehicle.departedPickup).toBe(true);
+    expect(vehicle.actualPickupClock).toBe('11:57 AM');
+  });
+
+  it("a dropoff stamp from a DIFFERENT date leaves the marker en-route", async () => {
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const vehicle = (
+      await buildTripDetailResponse(
+        tripWithRun({
+          ...ARRIVED_TODAY,
+          ...DEPARTED_TODAY,
+          actualDropoffAt: '2026-07-16T17:09:00.000Z',
+          actualDropoffDate: '2026-07-16',
+        }),
+      )
+    ).vehicles[0];
+
+    expect(vehicle.markerStatus).toBe('en-route');
   });
 
   it('exposes the trip essentials without the token', async () => {

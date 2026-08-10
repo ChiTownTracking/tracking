@@ -33,6 +33,45 @@ export interface ScheduleEntry {
   // — never store false explicitly, same absent-means-default convention
   // as every optional field in this file.
   cancelled?: boolean;
+  // Phase N7: when the vehicle was actually observed at the FIRST waypoint
+  // for this run (lib/pickupDetection.ts). These two are ONE fact in two
+  // fields — always written together, always cleared together, never
+  // independently.
+  //
+  // The date exists because this entry RECURS DAILY: "arrived at 9:02 AM"
+  // is meaningless on its own, since tomorrow's occurrence of the very same
+  // entry would inherit it and claim a pickup that hasn't happened yet.
+  // Scoping the detection to the specific calendar day it occurred on is
+  // what makes a stored stamp readable as "today's detection" (show it) or
+  // "yesterday's leftover" (ignore it, detect afresh).
+  actualPickupAt?: string; // ISO timestamp of detection
+  actualPickupDate?: string; // "YYYY-MM-DD", Chicago-anchored — the REAL
+  // calendar date this detection applies to
+  // Phase P: when the vehicle actually LEFT that pickup on this run —
+  // the same paired, date-scoped pair discipline as the two fields
+  // above, for the same recurrence reason, and never one without the
+  // other.
+  //
+  // STICKY: written once per date and never revised. A bus that drifts
+  // back inside the pickup radius after pulling away has still departed,
+  // and the record must not flap with it — that stickiness is the whole
+  // point of storing this rather than re-deriving it from live position.
+  // lib/pickupDetection.detectDeparture owns the two things that can set
+  // it: leaving the radius, or the pickup window's late bound passing
+  // with the bus still sitting there.
+  actualDepartureAt?: string; // ISO timestamp of departure
+  actualDepartureDate?: string; // "YYYY-MM-DD", Chicago-anchored
+  // Phase P: when this run finished — the vehicle reached the LAST
+  // waypoint (or its real departure plus the trip's own travel estimate
+  // ran out). Third of the three pairs, identical discipline: written
+  // together, date-scoped to the occurrence, sticky once set.
+  //
+  // INTERNAL ONLY. Unlike the pickup pair, neither of these is ever
+  // exposed in the public trip response — they exist to retire a
+  // vehicle's map marker back to its neutral state, and there is no
+  // customer-facing drop-off time anywhere in the product.
+  actualDropoffAt?: string; // ISO timestamp of completion
+  actualDropoffDate?: string; // "YYYY-MM-DD", Chicago-anchored
 }
 
 // One vehicle's runs on this trip — always at least one entry at CREATION

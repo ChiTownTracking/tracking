@@ -30,7 +30,7 @@ export default function ScheduleTimeline({
   schedule,
   durationSeconds,
   extraSecondsPerEntry,
-  predictedArrivals,
+  actualPickups,
   cancelledEntries,
   dateOffsetDays = 0,
 }: {
@@ -41,14 +41,20 @@ export default function ScheduleTimeline({
   // its in-progress span (Phase I2). Parallel to `schedule` as passed;
   // pairing survives the chronological sort below.
   extraSecondsPerEntry?: number[];
-  // Optional display-ready predicted arrival ("7:47 PM") per entry,
-  // parallel to `schedule`. Rows without one (null, or the prop absent —
-  // /track passes nothing) simply render no third column.
-  predictedArrivals?: (string | null)[];
+  // Phase N7: the display-ready CONFIRMED pickup time ("7:47 PM") per
+  // entry — when the vehicle was really seen at the first stop on that
+  // row's own day — parallel to `schedule`. Replaces the predicted
+  // destination arrival that used to fill this column; a row without one
+  // (null, or the prop absent — /track passes nothing) simply renders no
+  // third column, including a Completed row whose pickup was never
+  // confirmed. That silence is the whole message here: the card's own
+  // headline carries the richer "not confirmed" wording, and a compact
+  // list row is the wrong place to repeat it.
+  actualPickups?: (string | null)[];
   // Optional per-entry cancelled flags, parallel to `schedule` (Phase L3).
   // A cancelled row overrides its clock status entirely: it reads
   // "Cancelled" — never "In progress" or "Completed" — and shows no
-  // predicted arrival.
+  // third column.
   cancelledEntries?: boolean[];
   // Phase N6: which calendar day this list's times belong to — 0 (the
   // default, every existing caller) = today, 1 = tomorrow. Every entry's
@@ -67,13 +73,13 @@ export default function ScheduleTimeline({
 
   // Zero-padded "HH:mm" sorts lexicographically === chronologically; never
   // assume the stored order. Times pair with their extra seconds and
-  // predicted arrivals BEFORE sorting so the three can't drift apart.
+  // confirmed pickups BEFORE sorting so the three can't drift apart.
   const entries = schedule
     .map((time, index) => ({
       time,
       index,
       extraSeconds: extraSecondsPerEntry?.[index] ?? 0,
-      predictedArrival: predictedArrivals?.[index] ?? null,
+      actualPickup: actualPickups?.[index] ?? null,
       cancelled: cancelledEntries?.[index] ?? false,
     }))
     .sort((a, b) => a.time.localeCompare(b.time))
@@ -134,9 +140,12 @@ export default function ScheduleTimeline({
                 {formatClock12Hour(entry.time)}
               </span>
               <span className="text-xs">{label}</span>
-              {!entry.cancelled && entry.predictedArrival && (
+              {/* Past tense on purpose: this column now reports an
+                  observation, not a forecast — it only ever appears for a
+                  pickup that already happened. */}
+              {!entry.cancelled && entry.actualPickup && (
                 <span className="ml-auto text-xs">
-                  arrives {entry.predictedArrival}
+                  arrived {entry.actualPickup}
                 </span>
               )}
             </li>

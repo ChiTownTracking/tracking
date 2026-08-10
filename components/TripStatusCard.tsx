@@ -20,34 +20,34 @@ export interface TripCardScheduleEntry {
   departureClock: string;
   // Present (true) only when staff cancelled this run (Phase L3).
   cancelled?: boolean;
+  // Phase N7: this row's own CONFIRMED pickup time, present only when the
+  // vehicle was really detected at the first stop on this row's date —
+  // what the schedule list's third column now shows.
+  actualPickupClock?: string;
   // Bus-buffered early/late arrival window, already formatted 12-hour.
+  // Feeds the emphasized in-progress block ONLY — it left the schedule
+  // list's column when actualPickupClock took that slot.
   predictedArrivalRange: { early: string; late: string } | null;
 }
 
-// The quiet inline confidence tag — next to the arrival/predicted time
-// itself, never a header-level pill (the earlier design revision).
-function ApproximateTag() {
-  return (
-    <span
-      className="ml-2 inline-block rounded px-1.5 py-0.5 align-middle text-[10px]"
-      style={{
-        border: '1px solid var(--color-text-muted)',
-        color: 'var(--color-text-muted)',
-      }}
-    >
-      approximate
-    </span>
-  );
-}
+// The inline "approximate" confidence tag that used to sit beside every
+// time on this card is GONE — from the arrival/scheduled/cancelled pickup
+// lines, from the pickup-detection lines, and from the emphasized predicted
+// range. Deliberately a display-only removal: positionConfident is still
+// computed, still sent by /api/public/trip/[token], and still accepted
+// below, so the signal is a prop away if it's ever wanted again.
 
 export default function TripStatusCard({
   vehicleLabel,
   cardLabel,
   hasPosition,
-  positionConfident,
   schedule,
   tomorrowSchedule,
   activeRunDateLabel,
+  actualPickupClock,
+  pickupMissed,
+  departedPickup,
+  markerStatus,
   serviceNote,
   pickupLabel,
   destinationLabel,
@@ -62,6 +62,8 @@ export default function TripStatusCard({
   // ("ROUTE A - 2401"); absent renders just the vehicle number as before.
   cardLabel?: string | null;
   hasPosition: boolean;
+  // Still part of the response and still passed in by the page — the card
+  // just doesn't paint anything from it anymore (see the note above).
   positionConfident: boolean | null;
   // Every run whose occurrence is valid TODAY (Phase N6: window-checked —
   // can be genuinely EMPTY, e.g. a same-evening trip whose early-morning
@@ -73,6 +75,26 @@ export default function TripStatusCard({
   // 17"), from the API — appended after the active-run time in every
   // time-stating variant. Null only when there's no active run at all.
   activeRunDateLabel?: string | null;
+  // Phase N7: the active run's pickup state, decided server-side (the date
+  // match a stored detection has to pass lives there, with the clock that
+  // wrote it). At most one is ever set; both empty is the ordinary pending
+  // case, which renders exactly as it always did.
+  // Set = the vehicle was actually seen at the pickup, at this 12-hour time.
+  actualPickupClock?: string | null;
+  // Set = the detection window closed with no arrival confirmed.
+  pickupMissed?: boolean | null;
+  // Phase P: the run has LEFT its pickup — read from the stored,
+  // date-scoped departure stamp, so it only ever goes false→true and can
+  // never flap back on a wandering GPS fix. Paired with actualPickupClock
+  // it decides present tense vs past below, and it is the SAME fact any
+  // map-marker state reads, so the two can't drift apart.
+  departedPickup?: boolean | null;
+  // Phase P: the SAME run-lifecycle field the map marker is driven by, so
+  // the card's live dot and the marker's pulse are one fact, lit at the
+  // same instant. Only 'at-pickup' shows anything here — the card has its
+  // own wording for every other state, and a dot on all of them would say
+  // nothing.
+  markerStatus?: 'at-pickup' | 'en-route' | 'general' | null;
   // The staff-written "why service changed" message (Phase L3) — the whole
   // point of the cancel/replace feature for customers, so it renders
   // prominently on the card, never buried in the collapsed schedule.
@@ -117,7 +139,6 @@ export default function TripStatusCard({
       )
     : null;
   const activeCancelled = active?.cancelled === true;
-  const uncertain = positionConfident === false;
 
   return (
     <section
@@ -176,12 +197,32 @@ export default function TripStatusCard({
         </div>
       )}
 
-      {/* Pickup arrival/departure from the ACTIVE run. With no live
-          position the pickup time is still known, but nothing is actually
-          tracking it — "Scheduled", not "Arrives". A cancelled anchor run
-          (every run cancelled) or an emptied schedule (all runs replaced
-          away) gets a calm plain statement instead — never an "Arrives"
-          line for a bus that isn't coming. */}
+      {/* The PICKUP status from the ACTIVE run — one line, and only ever
+          about the pickup. (The "Departs at" line that used to sit under
+          it is gone for good, at every waitMinutes.) With no live position
+          the pickup time is still known, but nothing is actually tracking
+          it — "Scheduled", not "Arrives". A cancelled anchor run (every
+          run cancelled) or an emptied schedule (all runs replaced away)
+          gets a calm plain statement instead — never an "Arrives" line for
+          a bus that isn't coming.
+
+          Phase N7 gives the live case four faces, in strict priority:
+
+          1. AT THE PICKUP NOW — arrived, and no departure recorded yet.
+             Present tense.
+          2. PICKED UP — a departure IS recorded. Past tense, and
+             deliberately the SAME timestamp state 1 was showing: the
+             record doesn't move once written, only the wording does.
+             Phase P: the 1→2 switch reads the stored departure stamp,
+             not a live "is it still within radius?" recheck — so a
+             parked bus whose fix wanders can't bounce the wording back
+             and forth, and this line and the map marker are driven by
+             one identical fact rather than two lookalike computations.
+          3. NOT CONFIRMED — the window closed with nothing recorded. No
+             time at all, because there is no honest one to show; still
+             said plainly rather than left as a silent gap.
+          4. Anything else — the original scheduled/arrives line,
+             untouched. */}
       {active === null ? (
         <p className="mt-2 text-sm">
           No more runs scheduled for this vehicle.
@@ -195,32 +236,47 @@ export default function TripStatusCard({
           pickup at {pickupLabel} is cancelled.
           {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
         </p>
-      ) : (
-        <>
-          <p className="mt-2 text-sm">
-            {hasPosition ? 'Arrives' : 'Scheduled:'} {pickupLabel} at{' '}
-            <span className="font-medium">
-              {formatClock12Hour(active.arrivalTime)}
-            </span>
-            {/* Phase N5: always append the active run's date, today or not. */}
-            {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
-            {/* The confidence tag sits beside the predicted time when the
-                emphasized block is shown; when it isn't, beside this time. */}
-            {hasPosition &&
-              uncertain &&
-              !(
-                activeStatus === 'in-progress' && active.predictedArrivalRange
-              ) && <ApproximateTag />}
-          </p>
-          {active.waitMinutes > 0 && (
-            <p
-              className="mt-0.5 text-sm"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              Departs at {formatClock12Hour(active.departureClock)}
-            </p>
+      ) : actualPickupClock && !departedPickup ? (
+        <p className="mt-2 text-sm">
+          {/* The app's one live-pulse dot (.status-dot--live — the same
+              class ScheduleTimeline's in-progress rows and the sidebar
+              use, and the same fleet-pulse keyframes behind the map
+              marker's at-pickup ring). Its reduced-motion fallback comes
+              with it from globals.css: solid teal, no animation.
+
+              Decorative only — the sentence beside it already says this,
+              so it's hidden from screen readers rather than announced as
+              a second, wordless signal. */}
+          {markerStatus === 'at-pickup' && (
+            <span
+              className="status-dot status-dot--live mr-1.5 align-middle"
+              aria-hidden="true"
+            />
           )}
-        </>
+          Vehicle is at the pick up location{' '}
+          <span className="font-medium">{actualPickupClock}</span>
+          {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
+        </p>
+      ) : actualPickupClock ? (
+        <p className="mt-2 text-sm">
+          Picked up at{' '}
+          <span className="font-medium">{actualPickupClock}</span>
+          {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
+        </p>
+      ) : pickupMissed ? (
+        <p className="mt-2 text-sm">
+          Pickup at {pickupLabel} was not confirmed.
+          {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
+        </p>
+      ) : (
+        <p className="mt-2 text-sm">
+          {hasPosition ? 'Arrives' : 'Scheduled:'} {pickupLabel} at{' '}
+          <span className="font-medium">
+            {formatClock12Hour(active.arrivalTime)}
+          </span>
+          {/* Phase N5: always append the active run's date, today or not. */}
+          {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
+        </p>
       )}
       {!hasPosition && (
         <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
@@ -250,7 +306,6 @@ export default function TripStatusCard({
               active.predictedArrivalRange.late
                 ? active.predictedArrivalRange.early
                 : `${active.predictedArrivalRange.early}–${active.predictedArrivalRange.late}`}
-              {uncertain && <ApproximateTag />}
             </p>
             <p className="mt-0.5 text-sm">
               Estimated arrival at {destinationLabel}
@@ -306,11 +361,12 @@ export default function TripStatusCard({
                 extraSecondsPerEntry={schedule.map(
                   (entry) => entry.waitMinutes * 60,
                 )}
-                // Rows keep a single time (the early end) — the full range
-                // lives in the emphasized block above, not in every
-                // schedule row.
-                predictedArrivals={schedule.map(
-                  (entry) => entry.predictedArrivalRange?.early ?? null,
+                // Phase N7: each row reports its OWN confirmed pickup, not
+                // a prediction about the destination. Undetected rows pass
+                // null and render blank. The predicted RANGE is untouched
+                // and still drives the emphasized block above.
+                actualPickups={schedule.map(
+                  (entry) => entry.actualPickupClock ?? null,
                 )}
                 cancelledEntries={schedule.map(
                   (entry) => entry.cancelled === true,
@@ -349,8 +405,8 @@ export default function TripStatusCard({
                 extraSecondsPerEntry={tomorrowSchedule.map(
                   (entry) => entry.waitMinutes * 60,
                 )}
-                predictedArrivals={tomorrowSchedule.map(
-                  (entry) => entry.predictedArrivalRange?.early ?? null,
+                actualPickups={tomorrowSchedule.map(
+                  (entry) => entry.actualPickupClock ?? null,
                 )}
                 cancelledEntries={tomorrowSchedule.map(
                   (entry) => entry.cancelled === true,

@@ -152,9 +152,23 @@ export async function PATCH(
           // freshly resolved one: a prediction for the previous time must
           // never linger on the new one, and a failed call leaves both
           // fields absent (never zero/null) per the ScheduleEntry contract.
+          //
+          // Phase N7/P's three lifecycle pairs go for exactly the same
+          // reason: every one of them was measured against the OLD
+          // arrival, so stamps from the old 9:00 must never read as
+          // "already arrived / departed / finished" on the new 2:00 PM
+          // run. Each dropped as a pair, never one half without the
+          // other, and all three together — a surviving departure with no
+          // pickup would be a state the detectors can't produce.
           const {
             predictedArrivalDurationSeconds: _stalePredicted,
             predictedArrivalStaticDurationSeconds: _staleStatic,
+            actualPickupAt: _stalePickupAt,
+            actualPickupDate: _stalePickupDate,
+            actualDepartureAt: _staleDepartureAt,
+            actualDepartureDate: _staleDepartureDate,
+            actualDropoffAt: _staleDropoffAt,
+            actualDropoffDate: _staleDropoffDate,
             ...rest
           } = run;
           return {

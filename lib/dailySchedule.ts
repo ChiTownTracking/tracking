@@ -1,10 +1,6 @@
-import {
-  computeDepartureClock,
-  computePredictedArrivalClock,
-} from './departureTime';
+import { detectedPickupClock } from './pickupDetection';
 import { computeOccurrenceValidity } from './scheduleOccurrence';
 import type { TripStatus } from './scheduleStatus';
-import { BUS_DURATION_BUFFER } from './tripEstimateConfig';
 import type { ScheduleEntry } from './trips';
 
 // Phase N6: which of a vehicle's recurring runs actually count as a valid
@@ -21,11 +17,18 @@ export interface DailyScheduleItem {
   // same convention the UI (ScheduleTimeline) already applies: "already
   // happened" and "never happening" must not read identically.
   status: TripStatus | 'cancelled';
-  // A single buffered predicted-arrival clock, present only when the
-  // entry carries a stored raw prediction (Phase K1) and isn't cancelled
-  // — a lighter sibling of tripDetail's own early/late RANGE, which
-  // independently reformats the same raw fields for the public API.
-  predictedArrivalClock?: string;
+  // Phase N7: when the vehicle was REALLY seen at the pickup on THIS
+  // row's own day — replacing the buffered predicted destination-arrival
+  // clock that used to sit here. A prediction and an observation are
+  // different claims, and the schedule list now makes the one it can
+  // actually stand behind.
+  //
+  // Present only when a detection exists for THIS row's occurrence date
+  // (a today row checks today, a tomorrow row checks tomorrow — see
+  // pickupDetection.detectedPickupClock); absent otherwise, so an
+  // undetected row renders blank rather than falling back to any other
+  // number.
+  actualPickupClock?: string;
 }
 
 export function computeDailySchedule(
@@ -55,27 +58,15 @@ export function computeDailySchedule(
       continue;
     }
 
-    const departureClock = computeDepartureClock(
-      entry.arrivalTime,
-      entry.waitMinutes,
-    );
-    // No prediction for a cancelled run — there's nothing to predict for
-    // a run that isn't happening (same rule tripDetail.ts's own
-    // predictedArrivalRange already follows).
-    const predictedArrivalClock =
-      !entry.cancelled && entry.predictedArrivalDurationSeconds !== undefined
-        ? computePredictedArrivalClock(
-            departureClock,
-            Math.round(
-              entry.predictedArrivalDurationSeconds * BUS_DURATION_BUFFER,
-            ),
-          )
-        : undefined;
+    // Scoped to the day THIS list is for: dateOffsetDays is the same one
+    // the occurrence above was validated against, so a stamp from another
+    // date is simply not this row's.
+    const actualPickupClock = detectedPickupClock(entry, dateOffsetDays, now);
 
     items.push({
       entry,
       status: entry.cancelled ? 'cancelled' : validity.status,
-      ...(predictedArrivalClock !== undefined ? { predictedArrivalClock } : {}),
+      ...(actualPickupClock !== undefined ? { actualPickupClock } : {}),
     });
   }
 

@@ -10,6 +10,7 @@ export function VehicleMarkerContent({
   heading,
   isLive,
   tintColor,
+  pickupStatus,
 }: {
   // null = the source reported no heading; the direction badge is omitted
   // rather than drawn pointing a made-up way.
@@ -20,15 +21,27 @@ export function VehicleMarkerContent({
   // in both live and idle states. Untinted callers get the classic
   // live-teal/muted treatment unchanged.
   tintColor?: string;
+  // Phase P: where this vehicle is in its run, from the trip response's
+  // stored markerStatus. OPTIONAL and undefined by default — the maps
+  // without any pickup concept (FleetMap's fleet view, TrackMap's older
+  // per-link data model) pass nothing and render exactly as they always
+  // have. 'general' is explicitly the same as omitting it.
+  pickupStatus?: 'at-pickup' | 'en-route' | 'general';
 }) {
   const statusColor =
     tintColor ?? (isLive ? 'var(--color-live)' : 'var(--color-text-muted)');
+  // Lifecycle state is a modifier ON TOP of the existing live/idle classes,
+  // never a replacement — a caller can be both, and the styles compose.
+  const className = [
+    'vehicle-marker',
+    isLive ? 'vehicle-marker--live' : null,
+    pickupStatus === 'at-pickup' ? 'vehicle-marker--at-pickup' : null,
+    pickupStatus === 'en-route' ? 'vehicle-marker--en-route' : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
-    <div
-      className={
-        isLive ? 'vehicle-marker vehicle-marker--live' : 'vehicle-marker'
-      }
-    >
+    <div className={className}>
       <span
         className="vehicle-marker__ring"
         style={tintColor ? { borderColor: tintColor } : undefined}

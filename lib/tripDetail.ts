@@ -1,15 +1,27 @@
+import { chicagoCalendarAnchor, chicagoDateLabel } from './chicagoDate';
 import { formatClock12Hour } from './clockFormat';
-import { computeDailySchedule } from './dailySchedule';
+import {
+  computeDailySchedule,
+  type DailyScheduleItem,
+} from './dailySchedule';
 import {
   computeDepartureClock,
   computePredictedArrivalRange,
 } from './departureTime';
 import { summarizeLiveProgress } from './liveProgress';
 import { getLiveVehicles } from './liveVehicles';
-import { getOccurrenceStatus } from './scheduleOccurrence';
-import { selectActiveScheduleEntry } from './scheduleEntry';
+import { detectedPickupClock } from './pickupDetection';
+import { PICKUP_LATE_WINDOW_MINUTES } from './pickupDetectionConfig';
+import {
+  computeOccurrenceTimestamp,
+  getOccurrenceStatus,
+} from './scheduleOccurrence';
+import {
+  selectActiveScheduleEntry,
+  type ActiveScheduleSelection,
+} from './scheduleEntry';
 import type { TripStatus } from './scheduleStatus';
-import type { ScheduleEntry, Trip } from './trips';
+import type { Trip } from './trips';
 import { getVehicleRoster } from './vehicleRoster';
 
 // Phase I1: the public trip detail, multi-vehicle. Every assigned vehicle
@@ -27,44 +39,125 @@ const runDateFormat = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 });
 
-// Reads a Date's Chicago calendar Y/M/D — the basis for advancing to
-// "tomorrow" without local-timezone Date math.
-const chicagoYmd = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'America/Chicago',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-
 // Phase N6: generalized from a today/tomorrow boolean to an explicit
 // dateOffsetDays (0 = today, 1 = tomorrow, matching
-// lib/scheduleEntry.ts's ActiveScheduleSelection).
+// lib/scheduleEntry.ts's ActiveScheduleSelection). Phase N7: the Chicago
+// calendar-date arithmetic itself moved to lib/chicagoDate.ts, so the day
+// this label names and the day a pickup detection is scoped to are, by
+// construction, the same day.
 function formatActiveRunDate(now: Date, dateOffsetDays: number): string {
-  if (dateOffsetDays === 0) {
-    return runDateFormat.format(now);
+  return runDateFormat.format(chicagoCalendarAnchor(now, dateOffsetDays));
+}
+
+// Phase N7's READ step: which of three pickup states the active run is in.
+//
+// DETECTED — a stored stamp whose date matches THIS occurrence's real
+//   calendar date. The match is checked explicitly, never assumed: the same
+//   entry recurs daily, so yesterday's stamp is still sitting on it.
+// MISSED — no such stamp, and the detection window's late edge (the same
+//   PICKUP_LATE_WINDOW_MINUTES the write step stops at) has passed.
+// PENDING — neither: the run is still inside its window, or hasn't reached
+//   it. Emits nothing at all, leaving the card's existing predicted-arrival
+//   display exactly as it was.
+//
+// Returns a spreadable object so both states stay absent-when-not-true,
+// the same convention as serviceNote/cardLabel above.
+function resolvePickupState(
+  selection: ActiveScheduleSelection,
+  now: Date,
+): { actualPickupClock?: string; pickupMissed?: true } {
+  const { entry, dateOffsetDays } = selection;
+  // A cancelled run isn't happening (Phase L3) — it can't be detected and
+  // it can't be missed. The card says "cancelled" for it and nothing else.
+  if (entry.cancelled) {
+    return {};
   }
-  // Advance the Chicago calendar date by dateOffsetDays and re-anchor at
-  // UTC noon — well clear of the 2 AM DST switch, and Date normalizes any
-  // month/year rollover — so a DST boundary can never mis-date it.
-  const parts = chicagoYmd.formatToParts(now);
-  const read = (type: string): number =>
-    Number(parts.find((part) => part.type === type)?.value ?? '0');
-  const shifted = new Date(
-    Date.UTC(read('year'), read('month') - 1, read('day') + dateOffsetDays, 12),
+
+  // The same date-matching check every schedule ROW goes through
+  // (lib/pickupDetection.ts) — one implementation, so the headline and the
+  // list can't disagree about whether this run was detected.
+  const actualPickupClock = detectedPickupClock(entry, dateOffsetDays, now);
+  if (actualPickupClock !== undefined) {
+    return { actualPickupClock };
+  }
+
+  const occurrenceInstant = computeOccurrenceTimestamp(
+    entry.arrivalTime,
+    dateOffsetDays,
+    now,
   );
-  return runDateFormat.format(shifted);
+  if (
+    now.getTime() >
+    occurrenceInstant.getTime() + PICKUP_LATE_WINDOW_MINUTES * 60_000
+  ) {
+    return { pickupMissed: true };
+  }
+  return {};
+}
+
+// Phase P: how a vehicle's map marker should read, from the three stored
+// lifecycle stamps and nothing else — no live position, no radius
+// recheck, no clock guesswork beyond the date match. A marker keyed to a
+// stored fact can't flicker; one keyed to "is it within 100 m right now?"
+// flickers whenever a parked bus's fix wanders.
+export type MarkerStatus = 'at-pickup' | 'en-route' | 'general';
+
+// Both of the card/marker progress signals, resolved together from one
+// reading of the same three stamps.
+function resolveRunProgress(
+  selection: ActiveScheduleSelection | null,
+  now: Date,
+): { departedPickup: boolean; markerStatus: MarkerStatus } {
+  // Nothing scheduled, or a run that isn't happening: neutral marker,
+  // nothing departed. (A cancelled run gets its own card message, and no
+  // lifecycle state at all — same rule the write steps follow.)
+  if (selection === null || selection.entry.cancelled) {
+    return { departedPickup: false, markerStatus: 'general' };
+  }
+
+  const { entry } = selection;
+  // The occurrence's own real calendar date — every stamp is checked
+  // against it, so yesterday's leftovers on this daily-recurring entry
+  // count for nothing today.
+  const dateLabel = chicagoDateLabel(now, selection.dateOffsetDays);
+  const pickedUp =
+    entry.actualPickupAt !== undefined && entry.actualPickupDate === dateLabel;
+  const departed =
+    entry.actualDepartureAt !== undefined &&
+    entry.actualDepartureDate === dateLabel;
+  const droppedOff =
+    entry.actualDropoffAt !== undefined && entry.actualDropoffDate === dateLabel;
+
+  // The three stamps only ever advance, and each requires the one before
+  // it, so these cases are mutually exclusive by construction.
+  const markerStatus: MarkerStatus = droppedOff
+    ? 'general' // the run is over — the marker goes back to neutral
+    : departed
+      ? 'en-route'
+      : pickedUp
+        ? 'at-pickup'
+        : 'general'; // nothing confirmed yet
+
+  return { departedPickup: departed, markerStatus };
 }
 
 // The rich per-entry public shape (id/arrivalTime/waitMinutes/status/
-// cancelled?/departureClock/predictedArrivalRange), day-aware: dateOffsetDays
-// 0 for the existing today `schedule` field, 1 for the new
-// `tomorrowSchedule` field — both otherwise identical formatting.
+// cancelled?/departureClock/actualPickupClock?/predictedArrivalRange),
+// day-aware: dateOffsetDays 0 for the existing today `schedule` field, 1
+// for the new `tomorrowSchedule` field — both otherwise identical
+// formatting.
+//
+// Takes the whole DailyScheduleItem, not just its entry: Phase N7's
+// per-row detection is already resolved there, against the very
+// dateOffsetDays that item was validated for, so it rides through rather
+// than being recomputed a second way here.
 function buildScheduleEntryDetail(
-  entry: ScheduleEntry,
+  item: DailyScheduleItem,
   dateOffsetDays: number,
   tripDurationSeconds: number,
   now: Date,
 ): SchedulePublicEntry {
+  const entry = item.entry;
   const departureClock = computeDepartureClock(
     entry.arrivalTime,
     entry.waitMinutes,
@@ -81,6 +174,11 @@ function buildScheduleEntryDetail(
     ),
     departureClock,
     ...(entry.cancelled ? { cancelled: true } : {}),
+    // Phase N7: the row's own confirmed pickup, present only when THIS
+    // occurrence was really detected — the schedule list's third column.
+    ...(item.actualPickupClock !== undefined
+      ? { actualPickupClock: item.actualPickupClock }
+      : {}),
     // A cancelled run gets no prediction even when one was stored at
     // booking — there is nothing to predict for a run that isn't
     // happening.
@@ -132,6 +230,33 @@ export interface TripVehicleDetail {
   // Present whenever there's an active entry to anchor it to; omitted only
   // for a fully-emptied assignment (nothing scheduled at all).
   activeRunDateLabel?: string;
+  // Phase N7 — the active run's pickup state, at most ONE of these two
+  // present, both absent in the ordinary pending case:
+  // DETECTED: when the vehicle was actually seen at the first stop for
+  // THIS occurrence, 12-hour Chicago clock ("9:02 AM").
+  actualPickupClock?: string;
+  // MISSED: no detection, and the detection window closed. Present (true)
+  // only then — same never-store-false convention as `cancelled`.
+  pickupMissed?: true;
+  // Phase P: has the active run LEFT its pickup? Straight from the
+  // stored departure stamp, date-checked — sticky, so it only ever goes
+  // false→true, never back. Always present (unlike the two optional
+  // fields above): it's one leg of a state machine the card walks, where
+  // "not yet" is a real answer rather than an absence.
+  //
+  // Paired with actualPickupClock this gives the card its whole pickup
+  // story without a second live computation: clock + !departed = the bus
+  // is there now; clock + departed = it was there, at that time.
+  departedPickup: boolean;
+  // Phase P: which of three states this vehicle's map marker should show,
+  // from the same stored stamps as departedPickup — 'at-pickup' while it
+  // sits at the first stop, 'en-route' once it has left, 'general' before
+  // the run starts and again once drop-off is confirmed.
+  //
+  // The drop-off stamps THEMSELVES are deliberately absent from this
+  // shape: retiring the marker is the only thing they're for, and no
+  // customer is ever shown a drop-off time.
+  markerStatus: MarkerStatus;
   // EVERY run whose occurrence is valid TODAY (Phase N6: window-checked —
   // an occurrence outside the trip's active window, e.g. one that would
   // have happened before the window even opened, is simply not in this
@@ -158,6 +283,11 @@ interface SchedulePublicEntry {
   // "HH:mm" — arrival + wait, the run's actual departure (Phase K2:
   // exposed per entry, no longer an internal-only computation).
   departureClock: string;
+  // Phase N7: THIS row's own confirmed pickup time ("9:02 AM"), present
+  // only when the vehicle was really detected at the first stop on this
+  // row's own occurrence date. Absent means undetected — the row's
+  // arrival column stays blank; it never falls back to a predicted time.
+  actualPickupClock?: string;
   // Display-ready 12-hour predicted arrival RANGE at the FINAL stop —
   // Google's traffic prediction and static baseline, bus-buffered and
   // ordered (lib/departureTime.computePredictedArrivalRange). Null when
@@ -215,7 +345,7 @@ export async function buildTripDetailResponse(
       trip.totalDurationSeconds,
       now,
     ).map((item) =>
-      buildScheduleEntryDetail(item.entry, 0, trip.totalDurationSeconds, now),
+      buildScheduleEntryDetail(item, 0, trip.totalDurationSeconds, now),
     );
     const tomorrowSchedule = computeDailySchedule(
       assignment.schedule,
@@ -225,7 +355,7 @@ export async function buildTripDetailResponse(
       trip.totalDurationSeconds,
       now,
     ).map((item) =>
-      buildScheduleEntryDetail(item.entry, 1, trip.totalDurationSeconds, now),
+      buildScheduleEntryDetail(item, 1, trip.totalDurationSeconds, now),
     );
 
     // Present only when staff set one — the customer-facing "why service
@@ -270,7 +400,33 @@ export async function buildTripDetailResponse(
           }
         : {};
 
+    // Phase N7: detected / missed / pending for that same active run —
+    // read-only here. The stamp itself is written upstream, in the public
+    // trip route, BEFORE this builder runs, so a detection made on this
+    // request is already visible to it.
+    const pickupState =
+      activeSelection !== null ? resolvePickupState(activeSelection, now) : {};
+
     const live = liveById.get(assignment.vehicleId);
+
+    // Phase P: has this run left its pickup yet? Read STRAIGHT off the
+    // stored departure stamp — the one sticky fact, written once by the
+    // route's departure step — rather than re-deriving "is it still
+    // there?" from the current fix.
+    //
+    // That is the whole point: a live radius re-check flickers when a
+    // parked bus's GPS wanders across the boundary, and every display
+    // keyed to it flickers in sympathy. A stored fact cannot flap, so
+    // anything reading this reads the same answer at the same moment.
+    // Date-scoped like every other stamp, since the entry recurs daily.
+    // Phase P: both come out of ONE reading of the three stored stamps,
+    // so the card's wording and the marker's state are the same fact
+    // twice, never two lookalike computations that can disagree.
+    const { departedPickup, markerStatus } = resolveRunProgress(
+      activeSelection,
+      now,
+    );
+
     if (!live) {
       // No live fix: honest nulls, static schedule still fully present —
       // one dark vehicle must never hide its runs or the rest of the trip.
@@ -286,6 +442,9 @@ export async function buildTripDetailResponse(
         ...serviceNote,
         ...cardLabel,
         ...activeRunDate,
+        ...pickupState,
+        departedPickup,
+        markerStatus,
         schedule,
         tomorrowSchedule,
       };
@@ -317,6 +476,9 @@ export async function buildTripDetailResponse(
       ...serviceNote,
       ...cardLabel,
       ...activeRunDate,
+      ...pickupState,
+      departedPickup,
+      markerStatus,
       schedule,
       tomorrowSchedule,
     };

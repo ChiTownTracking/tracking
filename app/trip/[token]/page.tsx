@@ -57,6 +57,18 @@ interface TripVehicleDetail {
   // The active run's date label (Phase N5) — absent only when nothing is
   // scheduled at all.
   activeRunDateLabel?: string;
+  // Phase N7: the active run's pickup state — at most one is present, both
+  // absent in the ordinary pending case.
+  actualPickupClock?: string;
+  pickupMissed?: true;
+  // Phase P: the run has left its pickup (stored, sticky, date-scoped) —
+  // always present, unlike the two above, because "not yet" is a real
+  // answer here.
+  departedPickup: boolean;
+  // Phase P: which lifecycle state this vehicle's MAP MARKER should show,
+  // derived server-side from the same stored facts as departedPickup —
+  // so the marker and the card can never tell different stories.
+  markerStatus?: 'at-pickup' | 'en-route' | 'general';
   // Every run valid TODAY (Phase N6: window-checked; can be empty).
   schedule: TripCardScheduleEntry[];
   // The same entries and window, one day ahead.
@@ -159,6 +171,7 @@ export default function TripPage() {
         speedMph: vehicle.speedMph,
         nextStopIndex: vehicle.nextStopIndex,
         stopEtas: vehicle.stopEtas,
+        markerStatus: vehicle.markerStatus,
       }))
     : [];
   const stopLabels = detail ? detail.trip.stops.map((stop) => stop.label) : [];
@@ -215,6 +228,10 @@ export default function TripPage() {
                 schedule={vehicle.schedule}
                 tomorrowSchedule={vehicle.tomorrowSchedule}
                 activeRunDateLabel={vehicle.activeRunDateLabel ?? null}
+                actualPickupClock={vehicle.actualPickupClock ?? null}
+                pickupMissed={vehicle.pickupMissed ?? null}
+                departedPickup={vehicle.departedPickup ?? false}
+                markerStatus={vehicle.markerStatus ?? null}
                 serviceNote={vehicle.serviceNote ?? null}
                 pickupLabel={stopLabels[0] ?? 'the first stop'}
                 destinationLabel={

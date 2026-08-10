@@ -44,6 +44,10 @@ export interface BoardTripSummary {
   speedMph: number | null;
   nextStopIndex: number | null;
   stopEtas: { arrival: string | null; departure: string | null }[] | null;
+  // Phase P: where this vehicle is in its run, straight from the trip
+  // response. Optional — a caller with no pickup-detection concept simply
+  // omits it and the marker renders as before.
+  markerStatus?: 'at-pickup' | 'en-route' | 'general';
 }
 
 // Customer theme's cloud-styled map ID — same as TrackMap, this only ever
@@ -279,6 +283,9 @@ function BoardVehicleMarker({
             // live-pulse claim is made; the route tint is the identity.
             isLive={false}
             tintColor={color}
+            // Phase P: the run-lifecycle state, passed straight through.
+            // Undefined for any caller that doesn't supply one.
+            pickupStatus={trip.markerStatus}
           />
         </div>
       </AdvancedMarker>

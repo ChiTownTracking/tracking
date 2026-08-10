@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 import type { Vehicle } from '@/lib/liveVehicles';
 import type { Trip } from '@/lib/trips';
@@ -34,6 +34,7 @@ vi.mock('@/lib/redisClient', () => ({
 
 vi.mock('@/lib/tripsStore', () => ({
   getTripByToken: vi.fn(),
+  saveTrip: vi.fn(),
 }));
 
 vi.mock('@/lib/liveVehicles', () => ({
@@ -51,7 +52,7 @@ vi.mock('@/lib/vehicleRoster', () => ({
 import { GET } from '@/app/api/public/trip/[token]/route';
 import { getLiveVehicles } from '@/lib/liveVehicles';
 import { WINDOW_MESSAGES } from '@/lib/trackingWindow';
-import { getTripByToken } from '@/lib/tripsStore';
+import { getTripByToken, saveTrip } from '@/lib/tripsStore';
 import { getVehicleRoster } from '@/lib/vehicleRoster';
 
 const TOKEN = 'a1b2c3d4-1111-4222-8333-abcdefabcdef';
@@ -127,6 +128,12 @@ function makeParams(token: string = TOKEN): {
 }
 
 describe('GET /api/public/trip/[token]', () => {
+  afterEach(() => {
+    // Only the Phase N7 detection tests pin the clock; the rest stay on the
+    // real one.
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     limitMock.mockResolvedValue({
@@ -250,6 +257,9 @@ describe('GET /api/public/trip/[token]', () => {
     // Nothing about the trip beyond the status message — and the live
     // layer was never touched.
     expect(getLiveVehicles).not.toHaveBeenCalled();
+    // Phase N7: detection never runs outside the active window — no live
+    // data is even fetched to run it on, and nothing is written.
+    expect(saveTrip).not.toHaveBeenCalled();
   });
 
   it('an ended trip returns the minimal ended shape and leaks no data', async () => {
@@ -267,6 +277,169 @@ describe('GET /api/public/trip/[token]', () => {
       message: WINDOW_MESSAGES.ended,
     });
     expect(getLiveVehicles).not.toHaveBeenCalled();
+    expect(saveTrip).not.toHaveBeenCalled();
+  });
+
+  // Phase N7: the WRITE step. One vehicle-position read, one decision per
+  // vehicle, at most one write — and the response is built from whatever
+  // that step produced.
+  const NOON_CHICAGO = new Date('2026-07-17T17:00:00.000Z');
+  // ~22 m due north of the first waypoint (41.0, -87.65): inside the 50 m
+  // radius. 41.005 is ~555 m up the route: well outside it.
+  const AT_THE_STOP = 41.0002;
+  const DOWN_THE_ROUTE = 41.005;
+
+  // Both vehicles arriving at noon Chicago, exactly when the clock is
+  // pinned — dead centre of the detection window.
+  const DETECTION_TRIP: Trip = {
+    ...TRIP,
+    vehicles: [
+      {
+        vehicleId: '1000067169',
+        schedule: [{ id: 'run-1', arrivalTime: '12:00', waitMinutes: 10 }],
+      },
+      {
+        vehicleId: '1000074171',
+        schedule: [{ id: 'run-2', arrivalTime: '12:00', waitMinutes: 10 }],
+      },
+    ],
+  };
+
+  function liveAt(vehicleId: string, latitude: number): Vehicle {
+    return { ...LIVE, vehicleId, latitude };
+  }
+
+  it('detects a live pickup arrival, persists it in ONE write, and reflects it in the SAME response', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOON_CHICAGO);
+    vi.mocked(getTripByToken).mockResolvedValue(DETECTION_TRIP);
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveAt('1000067169', AT_THE_STOP),
+      liveAt('1000074171', AT_THE_STOP),
+    ]);
+
+    const response = await GET(makeRequest(), makeParams());
+    const body = await response.json();
+
+    // TWO vehicles detected, ONE saveTrip for the whole trip.
+    expect(saveTrip).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(saveTrip).mock.calls[0][0];
+    for (const assignment of saved.vehicles) {
+      // The pair, written together and scoped to the real calendar day.
+      expect(assignment.schedule[0].actualPickupAt).toBe(
+        '2026-07-17T17:00:00.000Z',
+      );
+      expect(assignment.schedule[0].actualPickupDate).toBe('2026-07-17');
+    }
+
+    // THE point of doing this before the response is built: the customer
+    // sees it on this request, not one 30-second poll later.
+    expect(
+      body.vehicles.map(
+        (vehicle: { actualPickupClock?: string }) => vehicle.actualPickupClock,
+      ),
+    ).toEqual(['12:00 PM', '12:00 PM']);
+
+    // The trip that came out of the store was copied, never mutated.
+    expect(DETECTION_TRIP.vehicles[0].schedule[0]).not.toHaveProperty(
+      'actualPickupAt',
+    );
+  });
+
+  // Phase P: the whole chain in ONE request. This run already arrived
+  // earlier today, so the pickup step no-ops; the vehicle is now sitting
+  // on Stop B (the LAST waypoint, ~2.2 km from the pickup), which exits
+  // the pickup radius AND lands inside the drop-off radius. Departure and
+  // drop-off therefore both have to fire on this single poll — which they
+  // can only do if each step is fed the previous step's OUTPUT entry.
+  const ARRIVED_TRIP: Trip = {
+    ...TRIP,
+    vehicles: [
+      {
+        vehicleId: '1000067169',
+        schedule: [
+          {
+            id: 'run-1',
+            arrivalTime: '12:00',
+            waitMinutes: 10,
+            actualPickupAt: '2026-07-17T16:58:00.000Z',
+            actualPickupDate: '2026-07-17',
+          },
+        ],
+      },
+    ],
+  };
+
+  it('records departure AND drop-off in the same request, chained on each step\'s output', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOON_CHICAGO);
+    vi.mocked(getTripByToken).mockResolvedValue(ARRIVED_TRIP);
+    // Parked at Stop B — the drop-off point itself.
+    vi.mocked(getLiveVehicles).mockResolvedValue([liveAt('1000067169', 41.02)]);
+
+    const response = await GET(makeRequest(), makeParams());
+    const body = await response.json();
+
+    // ONE write for the whole chain.
+    expect(saveTrip).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(saveTrip).mock.calls[0][0];
+    const entry = saved.vehicles[0].schedule[0];
+    // Both new facts stamped at this request's instant, both dated today.
+    expect(entry.actualDepartureAt).toBe('2026-07-17T17:00:00.000Z');
+    expect(entry.actualDepartureDate).toBe('2026-07-17');
+    expect(entry.actualDropoffAt).toBe('2026-07-17T17:00:00.000Z');
+    expect(entry.actualDropoffDate).toBe('2026-07-17');
+    // The earlier arrival is preserved, not overwritten.
+    expect(entry.actualPickupAt).toBe('2026-07-17T16:58:00.000Z');
+
+    // Reflected in THIS response: the run is complete, so the marker has
+    // already retired to neutral.
+    expect(body.vehicles[0].markerStatus).toBe('general');
+    expect(body.vehicles[0].departedPickup).toBe(true);
+    // The drop-off record itself never reaches the customer.
+    expect(body.vehicles[0]).not.toHaveProperty('actualDropoffAt');
+  });
+
+  it("a departure recorded this request is visible as 'en-route' in the same response", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOON_CHICAGO);
+    vi.mocked(getTripByToken).mockResolvedValue(ARRIVED_TRIP);
+    // Mid-route: out of the pickup radius, not yet at the drop-off, and
+    // nowhere near the time fallback — departure only.
+    vi.mocked(getLiveVehicles).mockResolvedValue([liveAt('1000067169', 41.01)]);
+
+    const response = await GET(makeRequest(), makeParams());
+    const body = await response.json();
+
+    expect(saveTrip).toHaveBeenCalledTimes(1);
+    const entry = vi.mocked(saveTrip).mock.calls[0][0].vehicles[0].schedule[0];
+    expect(entry.actualDepartureAt).toBe('2026-07-17T17:00:00.000Z');
+    expect(entry).not.toHaveProperty('actualDropoffAt');
+    // The fact written moments ago drives this very response.
+    expect(body.vehicles[0].markerStatus).toBe('en-route');
+  });
+
+  it('does NOT write anything when the vehicle is outside the pickup radius', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOON_CHICAGO);
+    vi.mocked(getTripByToken).mockResolvedValue(DETECTION_TRIP);
+    // Inside the time window, outside the geofence — the whole point of
+    // having a radius.
+    vi.mocked(getLiveVehicles).mockResolvedValue([
+      liveAt('1000067169', DOWN_THE_ROUTE),
+      liveAt('1000074171', DOWN_THE_ROUTE),
+    ]);
+
+    const response = await GET(makeRequest(), makeParams());
+    const body = await response.json();
+
+    expect(saveTrip).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    for (const vehicle of body.vehicles) {
+      expect(vehicle).not.toHaveProperty('actualPickupClock');
+      // Noon is dead centre of the window, nowhere near the late cutoff.
+      expect(vehicle).not.toHaveProperty('pickupMissed');
+    }
   });
 
   it('returns 429 with Retry-After before any store access, on the trip-specific limiter', async () => {

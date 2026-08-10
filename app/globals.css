@@ -89,6 +89,27 @@ body {
   animation: fleet-pulse 2s ease-in-out infinite;
 }
 
+/* Phase P: run-lifecycle states on the customer trip map, driven by the
+   stored pickup/departure facts (markerStatus). Both act on the RING's
+   halo rather than its border-color, because the board tints that border
+   inline per vehicle to tie a marker to its card — the lifecycle state
+   layers on top of that identity instead of overwriting it.
+
+   At the pickup: the same fleet-pulse, same 2s timing, as every other
+   "live right now" signal in the app (the sidebar status dot, the
+   schedule's in-progress chips). */
+.vehicle-marker--at-pickup .vehicle-marker__ring {
+  animation: fleet-pulse 2s ease-in-out infinite;
+}
+
+/* En route: the pulse's resting frame, held still — plainly distinct from
+   the pickup state at a glance, but it never moves, so a bus mid-route
+   doesn't compete for attention with one that's actually boarding. */
+.vehicle-marker--en-route .vehicle-marker__ring {
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-live) 25%, transparent);
+}
+
 .vehicle-marker__bus {
   position: relative;
 }
@@ -168,8 +189,17 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .vehicle-marker--live .vehicle-marker__ring,
+  .vehicle-marker--at-pickup .vehicle-marker__ring,
   .status-dot--live {
     /* Solid live color, no pulse. */
     animation: none;
+  }
+
+  /* The pulse is gone, so give the at-pickup marker the steady halo
+     instead of nothing — the state still has to be visible without
+     motion, just a stronger one than en-route's. */
+  .vehicle-marker--at-pickup .vehicle-marker__ring {
+    box-shadow: 0 0 0 5px
+      color-mix(in srgb, var(--color-live) 45%, transparent);
   }
 }

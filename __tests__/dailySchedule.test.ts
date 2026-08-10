@@ -56,9 +56,9 @@ describe('computeDailySchedule', () => {
       'run-1', // 09:00
     ]);
     expect(tomorrow.every((item) => item.status === 'upcoming')).toBe(true);
-    // No stored predictions on any of these entries.
+    // Nothing detected on any of these entries.
     expect(
-      tomorrow.every((item) => item.predictedArrivalClock === undefined),
+      tomorrow.every((item) => item.actualPickupClock === undefined),
     ).toBe(true);
   });
 
@@ -91,23 +91,79 @@ describe('computeDailySchedule', () => {
     expect(todayCancelled).toEqual([]);
   });
 
-  // A stored raw prediction becomes a buffered single clock time.
-  it('computes a buffered predictedArrivalClock when a raw prediction is stored', () => {
-    const withPrediction = computeDailySchedule(
-      [
-        entry('run-p', '07:30', {
-          predictedArrivalDurationSeconds: 1000,
-        }),
-      ],
-      1,
-      WINDOW_START,
-      WINDOW_END,
-      TRIP_DURATION_SECONDS,
-      NOW,
-    );
-    // Departure = arrival (no wait) = 07:30 tomorrow. 1000s * 1.1 buffer =
-    // 1100s → round to 18 min (1100/60 = 18.33 → 18) → 07:48.
-    expect(withPrediction[0].predictedArrivalClock).toBe('07:48');
+  // Phase N7: the row's third column is now its OWN confirmed pickup —
+  // scoped to the calendar day THAT row is for, never a prediction and
+  // never another day's stamp.
+  //
+  // A separate clock from the window fixtures above, on an ordinary
+  // mid-window day: noon Chicago on Fri, Jul 17 2026 ("2026-07-17"), with
+  // no trip window at all so nothing is filtered out.
+  describe('actualPickupClock (per-row pickup detection)', () => {
+    const NOON = new Date('2026-07-17T17:00:00.000Z');
+    const DETECTED_AT = '2026-07-17T16:57:00.000Z'; // 11:57 AM Chicago
+
+    function rowsFor(dateOffsetDays: number, overrides: Partial<ScheduleEntry>) {
+      return computeDailySchedule(
+        [entry('run-a', '11:55', { waitMinutes: 10, ...overrides })],
+        dateOffsetDays,
+        undefined,
+        undefined,
+        600,
+        NOON,
+      );
+    }
+
+    it("a same-date detection returns THIS row's formatted 12-hour clock", () => {
+      const [row] = rowsFor(0, {
+        actualPickupAt: DETECTED_AT,
+        actualPickupDate: '2026-07-17',
+      });
+
+      expect(row.actualPickupClock).toBe('11:57 AM');
+    });
+
+    it('a detection from a DIFFERENT date is absent, never shown as this row\'s time', () => {
+      // Yesterday's leftover on the same daily-recurring entry.
+      const [row] = rowsFor(0, {
+        actualPickupAt: '2026-07-16T16:57:00.000Z',
+        actualPickupDate: '2026-07-16',
+      });
+
+      expect(row.actualPickupClock).toBeUndefined();
+      // Omitted entirely, not present-and-empty.
+      expect(row).not.toHaveProperty('actualPickupClock');
+    });
+
+    it('an entry with no detection at all is absent', () => {
+      const [row] = rowsFor(0, {});
+
+      expect(row).not.toHaveProperty('actualPickupClock');
+    });
+
+    it("TOMORROW's row of a run detected TODAY is absent — each row checks its own day", () => {
+      // The one detection is real and today's; tomorrow's occurrence of the
+      // very same entry has not happened, so its row must stay blank.
+      const detection = {
+        actualPickupAt: DETECTED_AT,
+        actualPickupDate: '2026-07-17',
+      };
+      const [todayRow] = rowsFor(0, detection);
+      const [tomorrowRow] = rowsFor(1, detection);
+
+      expect(todayRow.actualPickupClock).toBe('11:57 AM');
+      expect(tomorrowRow).not.toHaveProperty('actualPickupClock');
+    });
+
+    // The column never falls back to the predicted destination arrival it
+    // replaced — a stored prediction alone puts nothing in this slot.
+    it('a stored prediction with no detection still leaves the row blank', () => {
+      const [row] = rowsFor(0, {
+        predictedArrivalDurationSeconds: 1000,
+        predictedArrivalStaticDurationSeconds: 1200,
+      });
+
+      expect(row).not.toHaveProperty('actualPickupClock');
+    });
   });
 
   // No trip-level window at all (legacy trip): nothing is filtered, every
