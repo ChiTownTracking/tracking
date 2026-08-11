@@ -22,3 +22,19 @@ export const BUS_DURATION_BUFFER = 1.1; // 10% starting estimate
 // correction that produced departure detection itself: start the clock
 // from something that actually happened.
 export const DROPOFF_FALLBACK_MINUTES_AFTER_ESTIMATE = 5;
+
+// The absolute ceiling on how long a schedule row may keep reading "In
+// progress" (lib/dailySchedule.resolveDisplayStatus): a run can never
+// still be under way more than this long past its scheduled instant plus
+// its own travel duration, whatever the stored facts do or don't say.
+//
+// Deliberately INDEPENDENT of the grace periods above and of the pickup
+// geofence windows (lib/pickupDetectionConfig.ts) — those exist to decide
+// whether something really happened, and they are unchanged and still do
+// exactly that job. This one decides nothing about reality: it is a
+// display guarantee, tuned purely for how long a stale "In progress" is
+// tolerable on screen. Tuning one must never mean tuning the other, which
+// is why it is its own number rather than a reuse of
+// DROPOFF_FALLBACK_MINUTES_AFTER_ESTIMATE despite currently sharing its
+// value.
+export const IN_PROGRESS_ABSOLUTE_GRACE_MINUTES = 5;

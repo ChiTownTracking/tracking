@@ -164,13 +164,15 @@ function buildScheduleEntryDetail(
     id: entry.id,
     arrivalTime: entry.arrivalTime,
     waitMinutes: entry.waitMinutes,
-    // Phase P: fact-aware, not clock-only — a run is "in progress" once a
-    // real departure was observed for this date, never because the wall
-    // clock wandered into its window.
+    // Fact-aware, not clock-only — a run is "in progress" once a real
+    // pickup was observed for this date and its scheduled instant has
+    // arrived, never because the wall clock wandered into its window, and
+    // never past resolveDisplayStatus's absolute ceiling.
     status: resolveDisplayStatus(
       entry,
       dateOffsetDays,
       entry.waitMinutes * 60 + tripDurationSeconds,
+      tripDurationSeconds,
       now,
     ),
     departureClock,

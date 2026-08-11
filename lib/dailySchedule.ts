@@ -1,11 +1,13 @@
 import { chicagoDateLabel } from './chicagoDate';
 import { detectedPickupClock } from './pickupDetection';
 import {
+  computeOccurrenceTimestamp,
   computeOccurrenceValidity,
   getOccurrenceStatus,
 } from './scheduleOccurrence';
 import type { TripStatus } from './scheduleStatus';
 import type { ScheduleEntry } from './trips';
+import { IN_PROGRESS_ABSOLUTE_GRACE_MINUTES } from './tripEstimateConfig';
 
 // Phase N6: which of a vehicle's recurring runs actually count as a valid
 // occurrence on a SPECIFIC calendar day (today = dateOffsetDays 0,
@@ -27,7 +29,8 @@ import type { ScheduleEntry } from './trips';
 // The order matters: a real fact always beats the clock, and the newest
 // real fact wins over the older one.
 //   dropoff recorded today  → completed
-//   departure recorded today → in-progress
+//   pickup recorded today, AND the scheduled instant has arrived
+//                           → in-progress
 //   neither                 → ask the clock, but only to answer one
 //                             question: is this run's whole window behind
 //                             us? If so it's completed (the dark-vehicle
@@ -38,6 +41,20 @@ import type { ScheduleEntry } from './trips';
 //                             in-progress. That downgrade is the actual
 //                             behavior change here.
 //
+// Phase Q moved the in-progress trigger from the DEPARTURE stamp to the
+// pickup stamp plus the clock, for two reasons. A bus boarding passengers
+// at the kerb is plainly under way — waiting for it to physically pull
+// out before the run reads "in progress" left an obviously-live run
+// looking like it hadn't started. And a bus that arrives EARLY shouldn't
+// start its run early: the scheduled instant is the floor, so an
+// early-detected pickup sits at 'upcoming' until the clock catches up,
+// then flips on its own with no second detection event needed.
+//
+// Departure is deliberately NOT consulted here anymore. It still answers
+// its own, finer question — has the vehicle physically left the stop —
+// which drives the map marker (lib/tripDetail.resolveRunProgress) and the
+// card's live dot. Two different questions, two different signals.
+//
 // getOccurrenceStatus (the day-aware wrapper over getStatusForOccurrence)
 // is reused untouched for that fallback — no second copy of the clock
 // rules, and every other caller of it is unaffected.
@@ -45,10 +62,39 @@ import type { ScheduleEntry } from './trips';
 // Date-scoped like every other stamp read: a "tomorrow" row asks for
 // tomorrow's label, which today's facts can never match, so future rows
 // fall through to the clock path exactly as they always did.
+//
+// Phase R adds the absolute ceiling. Detection can fail to record a
+// departure or a drop-off for perfectly ordinary reasons — the tracker
+// goes dark, the bus stops short of the pin, nobody loads the page while
+// the fallback window is open — and until now every one of those left a
+// picked-up run reading "In progress" indefinitely. So there is a hard
+// upper bound: the scheduled instant, plus this trip's own travel
+// duration, plus IN_PROGRESS_ABSOLUTE_GRACE_MINUTES. Past that point the
+// row reads 'completed' whether or not anything was ever recorded, and
+// 'in-progress' is structurally unreachable.
+//
+// It is a DISPLAY guarantee, not a fact: detectDeparture and
+// detectDropoffCompletion are untouched and still record what genuinely
+// happened whenever they can — which is why a real recorded drop-off is
+// still checked first and wins outright. The ceiling only ever answers
+// for the runs those detectors could not answer for.
+//
+// The ceiling sits inside the picked-up branch because that is the only
+// branch it needs to bound: a run with no pickup can never be
+// 'in-progress' at all (see the fallback below), so applying the ceiling
+// to it would not prevent anything — it would only declare an
+// unobserved run finished EARLIER than its own window ends, which is a
+// claim this function has no grounds to make.
 export function resolveDisplayStatus(
   entry: ScheduleEntry,
   dateOffsetDays: number,
   durationSeconds: number,
+  // The trip's static travel duration — the very same trip.
+  // totalDurationSeconds the drop-off fallback measures against
+  // (lib/pickupDetection.detectDropoffCompletion), passed in rather than
+  // recovered from durationSeconds above, which callers have already
+  // added each entry's own pickup wait into.
+  staticTravelDurationSeconds: number,
   now: Date,
 ): TripStatus {
   const dateLabel = chicagoDateLabel(now, dateOffsetDays);
@@ -56,8 +102,23 @@ export function resolveDisplayStatus(
   if (entry.actualDropoffDate === dateLabel) {
     return 'completed';
   }
-  if (entry.actualDepartureDate === dateLabel) {
-    return 'in-progress';
+  if (entry.actualPickupDate === dateLabel) {
+    const occurrenceMs = computeOccurrenceTimestamp(
+      entry.arrivalTime,
+      dateOffsetDays,
+      now,
+    ).getTime();
+    const absoluteCeilingMs =
+      occurrenceMs +
+      IN_PROGRESS_ABSOLUTE_GRACE_MINUTES * 60_000 +
+      staticTravelDurationSeconds * 1000;
+
+    if (now.getTime() >= absoluteCeilingMs) {
+      return 'completed';
+    }
+    if (now.getTime() >= occurrenceMs) {
+      return 'in-progress';
+    }
   }
 
   const byClock = getOccurrenceStatus(
@@ -133,6 +194,7 @@ export function computeDailySchedule(
             entry,
             dateOffsetDays,
             entry.waitMinutes * 60 + tripDurationSeconds,
+            tripDurationSeconds,
             now,
           ),
       ...(actualPickupClock !== undefined ? { actualPickupClock } : {}),

@@ -157,8 +157,23 @@ export function selectActiveScheduleEntry(
 // so callers (e.g. TripStatusCard's richer TripCardScheduleEntry) get
 // their own entry type back, matching selectActiveScheduleEntry's own
 // "returns an element of the array it was given" behavior.
+// Phase Q: entries that ALREADY carry a resolved status (the public trip
+// response's rows, resolved by dailySchedule.resolveDisplayStatus) are
+// selected on THAT status, not on a fresh clock reading. Without this the
+// card picks its headline run by pure clock arithmetic while the schedule
+// rows are labelled from the stored facts — and the two surfaces end up
+// describing different runs, which is exactly the reported disconnect: a
+// row reading "In progress" for a run whose clock window has closed,
+// while the headline had already moved on to the next run's "Arrives...".
+// Entries without a status (any caller not fed by that response) keep the
+// original clock behavior.
 export function selectActiveFromDailyPools<
-  T extends { arrivalTime: string; waitMinutes: number; cancelled?: boolean },
+  T extends {
+    arrivalTime: string;
+    waitMinutes: number;
+    cancelled?: boolean;
+    status?: TripStatus;
+  },
 >(
   today: T[],
   tomorrow: T[],
@@ -192,12 +207,14 @@ export function selectActiveFromDailyPools<
         entry,
         dateOffsetDays,
         timestampMs,
-        status: getOccurrenceStatus(
-          entry.arrivalTime,
-          dateOffsetDays,
-          entry.waitMinutes * 60 + tripDurationSeconds,
-          now,
-        ),
+        status:
+          entry.status ??
+          getOccurrenceStatus(
+            entry.arrivalTime,
+            dateOffsetDays,
+            entry.waitMinutes * 60 + tripDurationSeconds,
+            now,
+          ),
       });
     }
   }

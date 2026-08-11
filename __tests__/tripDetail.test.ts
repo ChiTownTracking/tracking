@@ -14,6 +14,7 @@ vi.mock('@/lib/vehicleRoster', () => ({
 // statuses should come from the actual math, not a mock's echo.
 
 import { getLiveVehicles } from '@/lib/liveVehicles';
+import { selectActiveFromDailyPools } from '@/lib/scheduleEntry';
 import { buildTripDetailResponse } from '@/lib/tripDetail';
 import { getVehicleRoster } from '@/lib/vehicleRoster';
 
@@ -131,8 +132,8 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(a.stopEtas?.[1].arrival).not.toBe(b.stopEtas?.[1].arrival);
 
     // Independent schedule statuses: A straddles noon, B is all ahead.
-    // Phase P: A's 11:55 run is mid-window by the clock but has no
-    // observed departure, so it reads 'upcoming', not 'in-progress' —
+    // Phase Q: A's 11:55 run is mid-window by the clock but its pickup
+    // was never confirmed, so it reads 'upcoming', not 'in-progress' —
     // the statuses are still per-vehicle and independent, which is what
     // this case is about.
     expect(a.schedule.map((run) => run.status)).toEqual([
@@ -147,10 +148,12 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
   // runs carry all three states simultaneously, each judged on its own
   // window (which includes its own pickup wait).
   //
-  // Phase P: reaching 'in-progress' now takes a real observed departure,
-  // so the middle run carries one. Without it the same three runs would
-  // read completed/upcoming/upcoming — which is the point of the rule,
-  // and is asserted directly in the sibling case above.
+  // Phase Q: reaching 'in-progress' takes a confirmed pickup whose
+  // scheduled instant has arrived, so the middle run carries one (plus
+  // the departure that realistically follows it — incidental to the
+  // status now, but it keeps the fixture a state the detectors could
+  // actually produce). Without the pickup the same three runs would read
+  // completed/upcoming/upcoming, as asserted in the sibling case above.
   it('a vehicle with multiple runs shows completed/in-progress/upcoming all at once', async () => {
     vi.mocked(getLiveVehicles).mockResolvedValue([
       liveVehicle('1000067169', 41.005, 12),
@@ -850,6 +853,78 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     ).vehicles[0];
 
     expect(vehicle.markerStatus).toBe('en-route');
+  });
+
+  // Phase Q — THE disconnect regression. Both surfaces are fed the exact
+  // same response and must describe the SAME run:
+  //   • the schedule row's label comes from resolveDisplayStatus,
+  //     server-side, per row;
+  //   • the card's headline picks its run with selectActiveFromDailyPools
+  //     (called here exactly as TripStatusCard calls it) and then reads
+  //     that row's own status and pickup clock.
+  //
+  // The scenario is the reported screenshot, reproduced precisely: a run
+  // whose pickup was confirmed and whose CLOCK window has since closed,
+  // with a later run still ahead of it. The row said "In progress" while
+  // the headline had already skipped to the next run's "Arrives…",
+  // because the headline's run was chosen by clock arithmetic that knew
+  // nothing about the stored facts.
+  it('REGRESSION: the schedule row and the card headline describe the same run', async () => {
+    // 12:07 PM Chicago — past the 11:55 run's clock window (11:55 + 0 min
+    // wait + 10 min drive = 12:05), so the bare clock calls it completed
+    // and would hand the headline to the 14:00 run.
+    //
+    // Phase R re-timed this fixture. It used to run a 10-minute pickup
+    // wait at 12:20, but the absolute ceiling (scheduled + drive + 5 min
+    // grace, so 12:10 here) does not count that wait, and with a wait
+    // longer than the grace the ceiling now closes the run BEFORE its own
+    // clock window does — leaving no instant where a fact-based
+    // in-progress outlives the clock. A 0-minute wait puts the clock
+    // window's close (12:05) back inside the ceiling (12:10), which is
+    // the gap this regression needs in order to test anything.
+    vi.setSystemTime(new Date('2026-07-17T17:07:00.000Z'));
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse({
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            {
+              id: 'run-a2',
+              arrivalTime: '11:55',
+              waitMinutes: 0,
+              actualPickupAt: '2026-07-17T16:57:00.000Z', // 11:57 AM
+              actualPickupDate: '2026-07-17',
+            },
+            { id: 'run-a3', arrivalTime: '14:00', waitMinutes: 0 },
+          ],
+        },
+      ],
+    });
+    const vehicle = detail.vehicles[0];
+
+    // The ROW: in progress, from the stored pickup.
+    const row = vehicle.schedule.find((entry) => entry.id === 'run-a2');
+    expect(row?.status).toBe('in-progress');
+
+    // The HEADLINE: the same selection call the card makes.
+    const selection = selectActiveFromDailyPools(
+      vehicle.schedule,
+      vehicle.tomorrowSchedule,
+      TRIP.totalDurationSeconds,
+      new Date(),
+    );
+
+    // Same run — not the 14:00 one the clock alone would have picked.
+    expect(selection?.entry.id).toBe('run-a2');
+    // Same status, so the headline renders "Arrived … at 11:57 AM"
+    // rather than "Arrives … at 2:00 PM".
+    expect(selection?.entry.status).toBe(row?.status);
+    expect(selection?.entry.actualPickupClock).toBe('11:57 AM');
+    // And the row it agrees with is the very object the list labels.
+    expect(selection?.entry).toBe(row);
   });
 
   it('exposes the trip essentials without the token', async () => {

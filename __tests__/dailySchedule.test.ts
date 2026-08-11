@@ -211,7 +211,8 @@ describe('computeDailySchedule', () => {
 describe('resolveDisplayStatus', () => {
   const NOON = new Date('2026-07-17T17:00:00.000Z');
   const TODAY = '2026-07-17';
-  const DURATION_SECONDS = 10 * 60 + 600; // wait + drive, as callers pass
+  const STATIC_TRAVEL_SECONDS = 600; // the trip's own drive time
+  const DURATION_SECONDS = 10 * 60 + STATIC_TRAVEL_SECONDS; // wait + drive, as callers pass
 
   const PICKED_UP = {
     actualPickupAt: '2026-07-17T16:57:00.000Z',
@@ -235,31 +236,78 @@ describe('resolveDisplayStatus', () => {
       entry('run-a', arrivalTime, { waitMinutes: 10, ...overrides }),
       dateOffsetDays,
       DURATION_SECONDS,
+      STATIC_TRAVEL_SECONDS,
       NOON,
     );
   }
 
-  // THE reported case: the bus arrived and is still sitting at the kerb,
-  // the clock has wandered into the run's window, and the row was
-  // announcing a journey that has not begun.
-  it('picked up but not yet departed reads UPCOMING, even though the clock says in-progress', () => {
-    // The clock genuinely disagrees — proving this isn't just a run that
-    // hadn't started yet.
-    expect(getOccurrenceStatus('11:55', 0, DURATION_SECONDS, NOON)).toBe(
-      'in-progress',
-    );
+  // THE Phase Q trigger: a confirmed pickup starts the run, but never
+  // before its scheduled instant. Both sides of that boundary are pinned
+  // below, because the flip has to happen on the clock alone — no second
+  // detection event ever arrives to cause it.
+  it('a pickup confirmed EARLY stays upcoming until the scheduled instant, then flips on its own', () => {
+    // Detected at 11:50, five minutes ahead of the 11:55 run.
+    const earlyPickup = {
+      actualPickupAt: '2026-07-17T16:50:00.000Z',
+      actualPickupDate: TODAY,
+    };
+    const entryAt1155 = entry('run-a', '11:55', {
+      waitMinutes: 10,
+      ...earlyPickup,
+    });
 
-    expect(statusOf(PICKED_UP)).toBe('upcoming');
+    // One millisecond BEFORE 11:55 Chicago: the bus is confirmed at the
+    // kerb, but its run has not started.
+    const justBefore = new Date('2026-07-17T16:54:59.999Z');
+    expect(
+      resolveDisplayStatus(
+        entryAt1155,
+        0,
+        DURATION_SECONDS,
+        STATIC_TRAVEL_SECONDS,
+        justBefore,
+      ),
+    ).toBe('upcoming');
+
+    // Exactly 11:55 Chicago: in progress, from the same stored data —
+    // nothing was detected in between.
+    const exactly = new Date('2026-07-17T16:55:00.000Z');
+    expect(
+      resolveDisplayStatus(
+        entryAt1155,
+        0,
+        DURATION_SECONDS,
+        STATIC_TRAVEL_SECONDS,
+        exactly,
+      ),
+    ).toBe('in-progress');
   });
 
-  it('a confirmed departure reads IN PROGRESS', () => {
+  it('a pickup confirmed inside the late window is in-progress immediately', () => {
+    // Scheduled 11:55, detected 11:58 — already past the scheduled
+    // instant, so there is nothing to wait for.
+    expect(
+      statusOf({
+        actualPickupAt: '2026-07-17T16:58:00.000Z',
+        actualPickupDate: TODAY,
+      }),
+    ).toBe('in-progress');
+  });
+
+  // Departure is no longer part of this decision at all (it drives the
+  // map marker and the live dot instead) — a picked-up run reads the same
+  // whether or not it has physically pulled away.
+  it('reads the same with or without a departure recorded', () => {
+    expect(statusOf(PICKED_UP)).toBe('in-progress');
     expect(statusOf({ ...PICKED_UP, ...DEPARTED })).toBe('in-progress');
   });
 
-  it('a confirmed drop-off reads COMPLETED, outranking the departure', () => {
+  it('a confirmed drop-off reads COMPLETED, outranking everything above', () => {
     expect(statusOf({ ...PICKED_UP, ...DEPARTED, ...DROPPED_OFF })).toBe(
       'completed',
     );
+    // Even with no departure ever recorded.
+    expect(statusOf({ ...PICKED_UP, ...DROPPED_OFF })).toBe('completed');
   });
 
   // The dark-vehicle case: nothing was ever observed, but the whole window
@@ -273,10 +321,9 @@ describe('resolveDisplayStatus', () => {
     expect(statusOf({}, 0, '14:00')).toBe('upcoming');
   });
 
-  // Only the clock-based in-progress is downgraded — the other two clock
-  // answers pass through untouched.
-  it('an unconfirmed run mid-window is the ONLY clock answer that changes', () => {
-    // Same entry, same instant, no facts: was in-progress, now upcoming.
+  // The Phase P downgrade still stands: the clock alone can never promote
+  // a run to in-progress.
+  it('an unconfirmed run mid-window is still downgraded to UPCOMING', () => {
     expect(getOccurrenceStatus('11:55', 0, DURATION_SECONDS, NOON)).toBe(
       'in-progress',
     );
@@ -297,14 +344,128 @@ describe('resolveDisplayStatus', () => {
     );
   });
 
-  it('a departure stamp from a DIFFERENT date never promotes a row', () => {
-    // Yesterday's departure sitting on this daily-recurring entry.
+  it('a pickup stamp from a DIFFERENT date never starts a run', () => {
+    // Yesterday's arrival sitting on this daily-recurring entry.
     expect(
       statusOf({
-        ...PICKED_UP,
-        actualDepartureAt: '2026-07-16T16:59:00.000Z',
-        actualDepartureDate: '2026-07-16',
+        actualPickupAt: '2026-07-16T16:57:00.000Z',
+        actualPickupDate: '2026-07-16',
       }),
     ).toBe('upcoming');
+  });
+
+  // Phase R: the absolute ceiling. Every case above assumes detection
+  // eventually records what happened; these are the ones where it never
+  // does, and the row would otherwise read "In progress" forever.
+  //
+  // For this fixture — 11:55 (16:55Z) + 10 min drive + 5 min grace — the
+  // ceiling falls at 17:10:00.000Z exactly. Note that NOON (17:00Z), the
+  // instant every test above pins, sits ten minutes short of it, so none
+  // of their expectations move.
+  describe('absolute in-progress ceiling', () => {
+    const CEILING = new Date('2026-07-17T17:10:00.000Z');
+    const at = (iso: string, overrides: Partial<ScheduleEntry>): TripStatus =>
+      resolveDisplayStatus(
+        entry('run-a', '11:55', { waitMinutes: 10, ...overrides }),
+        0,
+        DURATION_SECONDS,
+        STATIC_TRAVEL_SECONDS,
+        new Date(iso),
+      );
+
+    // The stuck-vehicle case this exists for: a real pickup, then silence
+    // — no departure ever detected, no drop-off ever detected — with the
+    // page still being polled long afterwards.
+    it('flips a picked-up run with NO departure or drop-off recorded at exactly the ceiling', () => {
+      // One millisecond short: still under way, on the fact alone.
+      expect(at('2026-07-17T17:09:59.999Z', PICKED_UP)).toBe('in-progress');
+      // At the ceiling: over, from identical stored data.
+      expect(at(CEILING.toISOString(), PICKED_UP)).toBe('completed');
+      // And it stays over — this is a floor, not a momentary flip.
+      expect(at('2026-07-17T19:30:00.000Z', PICKED_UP)).toBe('completed');
+    });
+
+    it('a departure that was recorded, with the drop-off never detected, does not extend it either', () => {
+      expect(at('2026-07-17T17:09:59.999Z', { ...PICKED_UP, ...DEPARTED })).toBe(
+        'in-progress',
+      );
+      expect(at(CEILING.toISOString(), { ...PICKED_UP, ...DEPARTED })).toBe(
+        'completed',
+      );
+    });
+
+    // A genuinely recorded drop-off must be answered by the FACT, not by
+    // the backstop that happens to agree with it. Both return 'completed',
+    // so the return value alone cannot tell the two branches apart — the
+    // entry below is booby-trapped instead: reading arrivalTime is the
+    // first thing computing the ceiling does, and nothing before the
+    // drop-off check touches it. If the ceiling were evaluated first, this
+    // throws instead of returning.
+    it('answers a confirmed drop-off from the real fact, without ever computing the ceiling', () => {
+      const droppedOffBeforeCeiling = {
+        ...PICKED_UP,
+        actualDropoffAt: '2026-07-17T17:04:00.000Z',
+        actualDropoffDate: TODAY,
+      };
+      const poisoned: ScheduleEntry = {
+        id: 'run-a',
+        waitMinutes: 10,
+        ...droppedOffBeforeCeiling,
+        get arrivalTime(): string {
+          throw new Error(
+            'the ceiling was computed before the recorded drop-off answered',
+          );
+        },
+      };
+
+      // 17:05 — the drop-off is real, and the ceiling is still five
+      // minutes away, so branch order is the only thing under test here.
+      const justAfterDropoff = new Date('2026-07-17T17:05:00.000Z');
+      expect(
+        resolveDisplayStatus(
+          poisoned,
+          0,
+          DURATION_SECONDS,
+          STATIC_TRAVEL_SECONDS,
+          justAfterDropoff,
+        ),
+      ).toBe('completed');
+
+      // Proof the trap is live rather than the assertion above passing on
+      // an entry that simply never reads arrivalTime: the same booby-trap
+      // WITHOUT the drop-off stamp falls through to the ceiling and blows
+      // up. (Built fresh — spreading `poisoned` would fire the getter.)
+      const poisonedNoDropoff: ScheduleEntry = {
+        id: 'run-a',
+        waitMinutes: 10,
+        ...PICKED_UP,
+        get arrivalTime(): string {
+          throw new Error('the ceiling was computed');
+        },
+      };
+      expect(() =>
+        resolveDisplayStatus(
+          poisonedNoDropoff,
+          0,
+          DURATION_SECONDS,
+          STATIC_TRAVEL_SECONDS,
+          justAfterDropoff,
+        ),
+      ).toThrow('the ceiling was computed');
+    });
+
+    // The ceiling bounds runs that really started; it has no business
+    // ending one nobody ever saw begin. Such a run can't be 'in-progress'
+    // anyway (the clock alone never promotes one), so applying it there
+    // would only declare an unobserved run finished BEFORE its own window
+    // closes — a claim there's no evidence for.
+    it('leaves a run with no pickup at all to the clock fallback', () => {
+      // 17:12 — two minutes PAST the ceiling, three short of this run's
+      // own window end (16:55 + 20 min). Untouched: still upcoming.
+      expect(at('2026-07-17T17:12:00.000Z', {})).toBe('upcoming');
+      // 17:15 — its window elapses, and the pre-existing fallback (not the
+      // ceiling) is what completes it.
+      expect(at('2026-07-17T17:15:00.000Z', {})).toBe('completed');
+    });
   });
 });

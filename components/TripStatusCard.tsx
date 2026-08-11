@@ -43,9 +43,7 @@ export default function TripStatusCard({
   schedule,
   tomorrowSchedule,
   activeRunDateLabel,
-  actualPickupClock,
   pickupMissed,
-  departedPickup,
   markerStatus,
   serviceNote,
   pickupLabel,
@@ -77,7 +75,10 @@ export default function TripStatusCard({
   // match a stored detection has to pass lives there, with the clock that
   // wrote it). At most one is ever set; both empty is the ordinary pending
   // case, which renders exactly as it always did.
-  // Set = the vehicle was actually seen at the pickup, at this 12-hour time.
+  // Set = the vehicle was actually seen at the pickup, at this 12-hour
+  // time. Phase Q: still accepted and still sent, but the headline now
+  // reads the SELECTED ROW's own actualPickupClock instead, so that its
+  // wording and its timestamp can never come from two different runs.
   actualPickupClock?: string | null;
   // Set = the detection window closed with no arrival confirmed.
   pickupMissed?: boolean | null;
@@ -85,7 +86,10 @@ export default function TripStatusCard({
   // date-scoped departure stamp, so it only ever goes false→true and can
   // never flap back on a wandering GPS fix. Paired with actualPickupClock
   // it decides present tense vs past below, and it is the SAME fact any
-  // map-marker state reads, so the two can't drift apart.
+  // map-marker state reads, so the two can't drift apart. Phase Q: no
+  // longer read here — the headline stopped splitting on "has it left
+  // yet", which is the dot's and the marker's question, not the
+  // sentence's. Still accepted, still sent, still driving markerStatus.
   departedPickup?: boolean | null;
   // Phase P: the SAME run-lifecycle field the map marker is driven by, so
   // the card's live dot and the marker's pulse are one fact, lit at the
@@ -133,6 +137,14 @@ export default function TripStatusCard({
   );
   const active = selection?.entry ?? null;
   const activeCancelled = active?.cancelled === true;
+  // Phase Q: the headline's state and its timestamp both come off the
+  // SELECTED ROW — the same object, carrying the same
+  // resolveDisplayStatus result the schedule list labels that row with.
+  // Previously the state came from vehicle-level fields resolved against
+  // the SERVER's idea of the active run while the row shown here was
+  // picked client-side, so the two could describe different runs.
+  const activeStatus = active?.status ?? null;
+  const activePickupClock = active?.actualPickupClock ?? null;
 
   return (
     <section
@@ -200,22 +212,24 @@ export default function TripStatusCard({
           gets a calm plain statement instead — never an "Arrives" line for
           a bus that isn't coming.
 
-          Phase N7 gives the live case four faces, in strict priority:
+          Phase Q collapsed the two separate confirmed-pickup lines ("at
+          the pick up location" / "Picked up at") into ONE, because they
+          were splitting a single state on a question the headline
+          shouldn't be answering. The run is either under way or it
+          isn't, and dailySchedule.resolveDisplayStatus — the very same
+          function that labels the rows in the schedule list below — is
+          the only thing that decides:
 
-          1. AT THE PICKUP NOW — arrived, and no departure recorded yet.
-             Present tense.
-          2. PICKED UP — a departure IS recorded. Past tense, and
-             deliberately the SAME timestamp state 1 was showing: the
-             record doesn't move once written, only the wording does.
-             Phase P: the 1→2 switch reads the stored departure stamp,
-             not a live "is it still within radius?" recheck — so a
-             parked bus whose fix wanders can't bounce the wording back
-             and forth, and this line and the map marker are driven by
-             one identical fact rather than two lookalike computations.
-          3. NOT CONFIRMED — the window closed with nothing recorded. No
+          1. IN PROGRESS — "Arrived {pickup} at {time}", held steady for
+             the whole span. The teal dot beside it is a SEPARATE, finer
+             signal, and keeps its own trigger (still physically within
+             the radius, i.e. not yet departed): the sentence says the
+             run is under way, the dot says the bus is still standing
+             there.
+          2. NOT CONFIRMED — the window closed with nothing recorded. No
              time at all, because there is no honest one to show; still
              said plainly rather than left as a silent gap.
-          4. Anything else — the original scheduled/arrives line,
+          3. Anything else — the original scheduled/arrives line,
              untouched. */}
       {active === null ? (
         <p className="mt-2 text-sm">
@@ -230,7 +244,7 @@ export default function TripStatusCard({
           pickup at {pickupLabel} is cancelled.
           {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
         </p>
-      ) : actualPickupClock && !departedPickup ? (
+      ) : activeStatus === 'in-progress' && activePickupClock ? (
         <p className="mt-2 text-sm">
           {/* The app's one live-pulse dot (.status-dot--live — the same
               class ScheduleTimeline's in-progress rows and the sidebar
@@ -238,23 +252,20 @@ export default function TripStatusCard({
               marker's at-pickup ring). Its reduced-motion fallback comes
               with it from globals.css: solid teal, no animation.
 
-              Decorative only — the sentence beside it already says this,
-              so it's hidden from screen readers rather than announced as
-              a second, wordless signal. */}
+              Phase Q left its trigger alone: it still lights only while
+              the vehicle hasn't departed, which is now a strictly finer
+              condition than the sentence it sits beside.
+
+              Decorative only — hidden from screen readers rather than
+              announced as a second, wordless signal. */}
           {markerStatus === 'at-pickup' && (
             <span
               className="status-dot status-dot--live mr-1.5 align-middle"
               aria-hidden="true"
             />
           )}
-          Vehicle is at the pick up location{' '}
-          <span className="font-medium">{actualPickupClock}</span>
-          {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
-        </p>
-      ) : actualPickupClock ? (
-        <p className="mt-2 text-sm">
-          Picked up at{' '}
-          <span className="font-medium">{actualPickupClock}</span>
+          Arrived {pickupLabel} at{' '}
+          <span className="font-medium">{activePickupClock}</span>
           {activeRunDateLabel ? ` - ${activeRunDateLabel}` : ''}
         </p>
       ) : pickupMissed ? (
