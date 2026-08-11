@@ -29,8 +29,8 @@ import { IN_PROGRESS_ABSOLUTE_GRACE_MINUTES } from './tripEstimateConfig';
 // The order matters: a real fact always beats the clock, and the newest
 // real fact wins over the older one.
 //   dropoff recorded today  → completed
-//   pickup recorded today, AND the scheduled instant has arrived
-//                           → in-progress
+//   pickup recorded today   → in-progress (bounded above by the ceiling
+//                             below)
 //   neither                 → ask the clock, but only to answer one
 //                             question: is this run's whole window behind
 //                             us? If so it's completed (the dark-vehicle
@@ -42,13 +42,20 @@ import { IN_PROGRESS_ABSOLUTE_GRACE_MINUTES } from './tripEstimateConfig';
 //                             behavior change here.
 //
 // Phase Q moved the in-progress trigger from the DEPARTURE stamp to the
-// pickup stamp plus the clock, for two reasons. A bus boarding passengers
-// at the kerb is plainly under way — waiting for it to physically pull
-// out before the run reads "in progress" left an obviously-live run
-// looking like it hadn't started. And a bus that arrives EARLY shouldn't
-// start its run early: the scheduled instant is the floor, so an
-// early-detected pickup sits at 'upcoming' until the clock catches up,
-// then flips on its own with no second detection event needed.
+// pickup stamp: a bus boarding passengers at the kerb is plainly under
+// way, and waiting for it to physically pull out before the row read "in
+// progress" left an obviously-live run looking like it hadn't started.
+//
+// It also required the scheduled instant to have arrived, so that an
+// early-detected pickup sat at 'upcoming' until the clock caught up.
+// That gate is now GONE, and the trigger is the pickup stamp alone. The
+// detection itself is already the tightly-bounded event — a vehicle
+// inside the pickup geofence within a few minutes either side of the
+// scheduled arrival (lib/pickupDetectionConfig.ts) — so by the time a
+// stamp exists at all, the run has demonstrably begun. Holding the row
+// at 'upcoming' for the last couple of minutes only made the display lag
+// a fact it already had; the geofence windows, not this function, are
+// where "too early to count" gets decided.
 //
 // Departure is deliberately NOT consulted here anymore. It still answers
 // its own, finer question — has the vehicle physically left the stop —
@@ -116,9 +123,7 @@ export function resolveDisplayStatus(
     if (now.getTime() >= absoluteCeilingMs) {
       return 'completed';
     }
-    if (now.getTime() >= occurrenceMs) {
-      return 'in-progress';
-    }
+    return 'in-progress';
   }
 
   const byClock = getOccurrenceStatus(

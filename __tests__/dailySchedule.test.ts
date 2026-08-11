@@ -241,46 +241,39 @@ describe('resolveDisplayStatus', () => {
     );
   }
 
-  // THE Phase Q trigger: a confirmed pickup starts the run, but never
-  // before its scheduled instant. Both sides of that boundary are pinned
-  // below, because the flip has to happen on the clock alone — no second
-  // detection event ever arrives to cause it.
-  it('a pickup confirmed EARLY stays upcoming until the scheduled instant, then flips on its own', () => {
+  // THE trigger: a confirmed pickup starts the run, full stop.
+  //
+  // This deliberately SUPERSEDES Phase Q's extra gate, which also
+  // required the scheduled instant to have passed and so held an
+  // early-detected run at 'upcoming' until the clock caught up (its
+  // 16:54:59.999/16:55:00.000 boundary test is gone with it — there is no
+  // such boundary now). Detection is already bounded to a few minutes
+  // either side of the scheduled arrival, so a stamp existing at all is
+  // sufficient evidence the run has begun.
+  it('a pickup confirmed EARLY is in-progress IMMEDIATELY, with no wait for the scheduled instant', () => {
     // Detected at 11:50, five minutes ahead of the 11:55 run.
-    const earlyPickup = {
-      actualPickupAt: '2026-07-17T16:50:00.000Z',
-      actualPickupDate: TODAY,
-    };
     const entryAt1155 = entry('run-a', '11:55', {
       waitMinutes: 10,
-      ...earlyPickup,
+      actualPickupAt: '2026-07-17T16:50:00.000Z',
+      actualPickupDate: TODAY,
     });
-
-    // One millisecond BEFORE 11:55 Chicago: the bus is confirmed at the
-    // kerb, but its run has not started.
-    const justBefore = new Date('2026-07-17T16:54:59.999Z');
-    expect(
+    const statusAt = (iso: string): TripStatus =>
       resolveDisplayStatus(
         entryAt1155,
         0,
         DURATION_SECONDS,
         STATIC_TRAVEL_SECONDS,
-        justBefore,
-      ),
-    ).toBe('upcoming');
+        new Date(iso),
+      );
 
-    // Exactly 11:55 Chicago: in progress, from the same stored data —
-    // nothing was detected in between.
-    const exactly = new Date('2026-07-17T16:55:00.000Z');
-    expect(
-      resolveDisplayStatus(
-        entryAt1155,
-        0,
-        DURATION_SECONDS,
-        STATIC_TRAVEL_SECONDS,
-        exactly,
-      ),
-    ).toBe('in-progress');
+    // The detection instant itself — nothing further is waited on.
+    expect(statusAt('2026-07-17T16:50:00.000Z')).toBe('in-progress');
+    // The instant Phase Q used to call 'upcoming', one millisecond short
+    // of 11:55: in progress now, from the very same stored data.
+    expect(statusAt('2026-07-17T16:54:59.999Z')).toBe('in-progress');
+    // And unchanged across the old boundary, which no longer means
+    // anything here.
+    expect(statusAt('2026-07-17T16:55:00.000Z')).toBe('in-progress');
   });
 
   it('a pickup confirmed inside the late window is in-progress immediately', () => {

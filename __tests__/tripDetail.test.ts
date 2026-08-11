@@ -927,6 +927,58 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(selection?.entry).toBe(row);
   });
 
+  // Phase S: with the scheduled-instant gate dropped, an EARLY pickup has
+  // to reach the headline the moment it is detected — no separate change
+  // in TripStatusCard, just the Phase Q unification carrying it. Asserted
+  // on the exact two values the card's in-progress branch tests
+  // (`activeStatus === 'in-progress' && activePickupClock`), read off the
+  // entry selectActiveFromDailyPools returns, because that is the whole
+  // of what stands between resolveDisplayStatus and the rendered line.
+  it('an EARLY pickup reaches the card headline immediately, before the scheduled instant', async () => {
+    // 11:52 AM Chicago — three minutes BEFORE the 11:55 run is due, and
+    // two minutes after it was detected at the kerb.
+    vi.setSystemTime(new Date('2026-07-17T16:52:00.000Z'));
+    vi.mocked(getLiveVehicles).mockResolvedValue([]);
+
+    const detail = await buildTripDetailResponse({
+      ...TRIP,
+      vehicles: [
+        {
+          vehicleId: '1000067169',
+          schedule: [
+            {
+              id: 'run-a2',
+              arrivalTime: '11:55',
+              waitMinutes: 0,
+              actualPickupAt: '2026-07-17T16:50:00.000Z', // 11:50 AM
+              actualPickupDate: '2026-07-17',
+            },
+            { id: 'run-a3', arrivalTime: '14:00', waitMinutes: 0 },
+          ],
+        },
+      ],
+    });
+    const vehicle = detail.vehicles[0];
+
+    const row = vehicle.schedule.find((entry) => entry.id === 'run-a2');
+    expect(row?.status).toBe('in-progress');
+
+    const selection = selectActiveFromDailyPools(
+      vehicle.schedule,
+      vehicle.tomorrowSchedule,
+      TRIP.totalDurationSeconds,
+      new Date(),
+    );
+
+    // Both halves of the headline's condition, on the same object the
+    // schedule list labels — so the card renders "Arrived … at 11:50 AM"
+    // rather than the "Arrives … at 11:55 AM" line the clock alone would
+    // still be showing at this instant.
+    expect(selection?.entry).toBe(row);
+    expect(selection?.entry.status).toBe('in-progress');
+    expect(selection?.entry.actualPickupClock).toBe('11:50 AM');
+  });
+
   it('exposes the trip essentials without the token', async () => {
     vi.mocked(getLiveVehicles).mockResolvedValue([]);
 
