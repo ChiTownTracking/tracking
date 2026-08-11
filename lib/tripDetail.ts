@@ -2,6 +2,7 @@ import { chicagoCalendarAnchor, chicagoDateLabel } from './chicagoDate';
 import { formatClock12Hour } from './clockFormat';
 import {
   computeDailySchedule,
+  resolveDisplayStatus,
   type DailyScheduleItem,
 } from './dailySchedule';
 import {
@@ -12,10 +13,7 @@ import { summarizeLiveProgress } from './liveProgress';
 import { getLiveVehicles } from './liveVehicles';
 import { detectedPickupClock } from './pickupDetection';
 import { PICKUP_LATE_WINDOW_MINUTES } from './pickupDetectionConfig';
-import {
-  computeOccurrenceTimestamp,
-  getOccurrenceStatus,
-} from './scheduleOccurrence';
+import { computeOccurrenceTimestamp } from './scheduleOccurrence';
 import {
   selectActiveScheduleEntry,
   type ActiveScheduleSelection,
@@ -166,8 +164,11 @@ function buildScheduleEntryDetail(
     id: entry.id,
     arrivalTime: entry.arrivalTime,
     waitMinutes: entry.waitMinutes,
-    status: getOccurrenceStatus(
-      entry.arrivalTime,
+    // Phase P: fact-aware, not clock-only — a run is "in progress" once a
+    // real departure was observed for this date, never because the wall
+    // clock wandered into its window.
+    status: resolveDisplayStatus(
+      entry,
       dateOffsetDays,
       entry.waitMinutes * 60 + tripDurationSeconds,
       now,

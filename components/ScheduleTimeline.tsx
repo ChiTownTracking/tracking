@@ -31,6 +31,7 @@ export default function ScheduleTimeline({
   durationSeconds,
   extraSecondsPerEntry,
   actualPickups,
+  statuses,
   cancelledEntries,
   dateOffsetDays = 0,
 }: {
@@ -51,6 +52,21 @@ export default function ScheduleTimeline({
   // headline carries the richer "not confirmed" wording, and a compact
   // list row is the wrong place to repeat it.
   actualPickups?: (string | null)[];
+  // Phase P: server-resolved per-entry statuses, parallel to `schedule`.
+  // When present these WIN over the clock computation below, because
+  // "in progress" now means an observed departure — a fact only the
+  // server holds, which no amount of client-side clock arithmetic can
+  // reconstruct.
+  //
+  // Optional on purpose: /track passes bare "HH:mm" strings from a data
+  // model that has no departure detection at all, and keeps the pure
+  // clock behavior it has always had. Absent = unchanged.
+  //
+  // The tradeoff, accepted knowingly: a supplied status is only as fresh
+  // as the last poll, where the clock path advances on the local 30s
+  // tick. The trip page polls on that same 30s cadence, and a status that
+  // is right-but-30s-late beats one that is instantly wrong.
+  statuses?: TripStatus[];
   // Optional per-entry cancelled flags, parallel to `schedule` (Phase L3).
   // A cancelled row overrides its clock status entirely: it reads
   // "Cancelled" — never "In progress" or "Completed" — and shows no
@@ -80,17 +96,22 @@ export default function ScheduleTimeline({
       index,
       extraSeconds: extraSecondsPerEntry?.[index] ?? 0,
       actualPickup: actualPickups?.[index] ?? null,
+      // Paired before the sort, like every other parallel array here, so
+      // a row can never end up wearing its neighbour's status.
+      suppliedStatus: statuses?.[index] ?? null,
       cancelled: cancelledEntries?.[index] ?? false,
     }))
     .sort((a, b) => a.time.localeCompare(b.time))
     .map((entry) => ({
       ...entry,
-      status: getOccurrenceStatus(
-        entry.time,
-        dateOffsetDays,
-        durationSeconds + entry.extraSeconds,
-        now,
-      ),
+      status:
+        entry.suppliedStatus ??
+        getOccurrenceStatus(
+          entry.time,
+          dateOffsetDays,
+          durationSeconds + entry.extraSeconds,
+          now,
+        ),
     }));
 
   return (

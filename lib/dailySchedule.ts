@@ -1,5 +1,9 @@
+import { chicagoDateLabel } from './chicagoDate';
 import { detectedPickupClock } from './pickupDetection';
-import { computeOccurrenceValidity } from './scheduleOccurrence';
+import {
+  computeOccurrenceValidity,
+  getOccurrenceStatus,
+} from './scheduleOccurrence';
 import type { TripStatus } from './scheduleStatus';
 import type { ScheduleEntry } from './trips';
 
@@ -10,6 +14,60 @@ import type { ScheduleEntry } from './trips';
 // list. An occurrence outside the trip's active window (the reported bug:
 // an early-morning time whose TODAY occurrence precedes a same-evening
 // window opening) is dropped entirely for that day, not mislabeled.
+
+// Phase P: what a schedule row should SAY, given both the stored
+// lifecycle facts and the clock.
+//
+// "In progress" used to be pure clock arithmetic: once the wall clock
+// entered a run's window the row claimed the run was underway, whether or
+// not any vehicle had actually moved. That is the reported bug — a row
+// announcing a run in progress while the bus sat un-departed at the kerb.
+// It now means an OBSERVED departure, and nothing else.
+//
+// The order matters: a real fact always beats the clock, and the newest
+// real fact wins over the older one.
+//   dropoff recorded today  → completed
+//   departure recorded today → in-progress
+//   neither                 → ask the clock, but only to answer one
+//                             question: is this run's whole window behind
+//                             us? If so it's completed (the dark-vehicle
+//                             case — the day ended and nothing was ever
+//                             observed, so "upcoming" would be a lie).
+//                             Anything else is upcoming, INCLUDING what
+//                             the clock alone would have called
+//                             in-progress. That downgrade is the actual
+//                             behavior change here.
+//
+// getOccurrenceStatus (the day-aware wrapper over getStatusForOccurrence)
+// is reused untouched for that fallback — no second copy of the clock
+// rules, and every other caller of it is unaffected.
+//
+// Date-scoped like every other stamp read: a "tomorrow" row asks for
+// tomorrow's label, which today's facts can never match, so future rows
+// fall through to the clock path exactly as they always did.
+export function resolveDisplayStatus(
+  entry: ScheduleEntry,
+  dateOffsetDays: number,
+  durationSeconds: number,
+  now: Date,
+): TripStatus {
+  const dateLabel = chicagoDateLabel(now, dateOffsetDays);
+
+  if (entry.actualDropoffDate === dateLabel) {
+    return 'completed';
+  }
+  if (entry.actualDepartureDate === dateLabel) {
+    return 'in-progress';
+  }
+
+  const byClock = getOccurrenceStatus(
+    entry.arrivalTime,
+    dateOffsetDays,
+    durationSeconds,
+    now,
+  );
+  return byClock === 'completed' ? 'completed' : 'upcoming';
+}
 
 export interface DailyScheduleItem {
   entry: ScheduleEntry;
@@ -65,7 +123,18 @@ export function computeDailySchedule(
 
     items.push({
       entry,
-      status: entry.cancelled ? 'cancelled' : validity.status,
+      // Phase P: the fact-aware status, not the bare clock one that
+      // computeOccurrenceValidity returned for the window check above.
+      // (That check still asks the pure clock question it always did:
+      // does this occurrence fall inside the trip's active window.)
+      status: entry.cancelled
+        ? 'cancelled'
+        : resolveDisplayStatus(
+            entry,
+            dateOffsetDays,
+            entry.waitMinutes * 60 + tripDurationSeconds,
+            now,
+          ),
       ...(actualPickupClock !== undefined ? { actualPickupClock } : {}),
     });
   }

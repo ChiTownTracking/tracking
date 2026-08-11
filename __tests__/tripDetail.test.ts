@@ -131,9 +131,13 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
     expect(a.stopEtas?.[1].arrival).not.toBe(b.stopEtas?.[1].arrival);
 
     // Independent schedule statuses: A straddles noon, B is all ahead.
+    // Phase P: A's 11:55 run is mid-window by the clock but has no
+    // observed departure, so it reads 'upcoming', not 'in-progress' —
+    // the statuses are still per-vehicle and independent, which is what
+    // this case is about.
     expect(a.schedule.map((run) => run.status)).toEqual([
       'completed',
-      'in-progress',
+      'upcoming',
       'upcoming',
     ]);
     expect(b.schedule.map((run) => run.status)).toEqual(['upcoming']);
@@ -141,14 +145,38 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
 
   // The multi-run mirror of the old sibling-window tests: one vehicle's
   // runs carry all three states simultaneously, each judged on its own
-  // clock window (which includes its own pickup wait).
+  // window (which includes its own pickup wait).
+  //
+  // Phase P: reaching 'in-progress' now takes a real observed departure,
+  // so the middle run carries one. Without it the same three runs would
+  // read completed/upcoming/upcoming — which is the point of the rule,
+  // and is asserted directly in the sibling case above.
   it('a vehicle with multiple runs shows completed/in-progress/upcoming all at once', async () => {
     vi.mocked(getLiveVehicles).mockResolvedValue([
       liveVehicle('1000067169', 41.005, 12),
       liveVehicle('1000074171', 41.015, 20),
     ]);
 
-    const detail = await buildTripDetailResponse(TRIP);
+    const detail = await buildTripDetailResponse({
+      ...TRIP,
+      vehicles: [
+        {
+          ...TRIP.vehicles[0],
+          schedule: TRIP.vehicles[0].schedule.map((run) =>
+            run.id === 'run-a2'
+              ? {
+                  ...run,
+                  actualPickupAt: '2026-07-17T16:57:00.000Z',
+                  actualPickupDate: '2026-07-17',
+                  actualDepartureAt: '2026-07-17T16:59:00.000Z',
+                  actualDepartureDate: '2026-07-17',
+                }
+              : run,
+          ),
+        },
+        TRIP.vehicles[1],
+      ],
+    });
 
     const runs = detail.vehicles[0].schedule;
     expect(runs).toEqual([
@@ -167,6 +195,10 @@ describe('buildTripDetailResponse (multi-vehicle)', () => {
         waitMinutes: 10,
         status: 'in-progress',
         departureClock: '12:05',
+        // Comes with the departure: a run can't have observably left a
+        // pickup it never observably reached, so the fixture carries the
+        // realistic pair and the row reports both.
+        actualPickupClock: '11:57 AM',
         predictedArrivalRange: null,
       },
       {

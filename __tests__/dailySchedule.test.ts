@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computeDailySchedule } from '@/lib/dailySchedule';
+import {
+  computeDailySchedule,
+  resolveDisplayStatus,
+} from '@/lib/dailySchedule';
+import { getOccurrenceStatus } from '@/lib/scheduleOccurrence';
+import type { TripStatus } from '@/lib/scheduleStatus';
 import type { ScheduleEntry } from '@/lib/trips';
 
 function entry(
@@ -166,9 +171,16 @@ describe('computeDailySchedule', () => {
     });
   });
 
-  // No trip-level window at all (legacy trip): nothing is filtered, every
-  // entry appears with its plain clock status — the pre-N6 behavior.
-  it('an absent window filters nothing — every entry appears with plain clock status', () => {
+  // No trip-level window at all (legacy trip): nothing is FILTERED, every
+  // entry appears — the pre-N6 behavior, which this still guards.
+  //
+  // Phase P changed what the statuses say, not what survives the filter.
+  // None of these entries carries a real departure, so the 11:55 run —
+  // which the bare clock would call in-progress at noon, and which this
+  // test asserted as such before — is now 'upcoming'. The 09:00 run's
+  // window has fully elapsed with nothing ever observed, so it stays
+  // 'completed'.
+  it('an absent window filters nothing — every entry appears, with fact-aware statuses', () => {
     const noon = new Date('2026-07-17T17:00:00Z');
     const legacy = computeDailySchedule(
       [
@@ -184,8 +196,115 @@ describe('computeDailySchedule', () => {
     );
     expect(legacy.map((item) => [item.entry.id, item.status])).toEqual([
       ['done', 'completed'],
-      ['active', 'in-progress'],
+      // Mid-window by the clock, but nothing was ever observed departing.
+      ['active', 'upcoming'],
       ['later', 'upcoming'],
     ]);
+  });
+});
+
+// Phase P: "In progress" means an OBSERVED departure, not a clock that
+// happened to enter the run's window. Pinned to noon Chicago on Fri, Jul
+// 17 2026 ("2026-07-17"), with a run at 11:55 + 10 min wait + 10 min drive
+// — a window of 11:55→12:15, so the bare clock calls it in-progress at
+// noon. That disagreement is the whole point of these cases.
+describe('resolveDisplayStatus', () => {
+  const NOON = new Date('2026-07-17T17:00:00.000Z');
+  const TODAY = '2026-07-17';
+  const DURATION_SECONDS = 10 * 60 + 600; // wait + drive, as callers pass
+
+  const PICKED_UP = {
+    actualPickupAt: '2026-07-17T16:57:00.000Z',
+    actualPickupDate: TODAY,
+  };
+  const DEPARTED = {
+    actualDepartureAt: '2026-07-17T16:59:00.000Z',
+    actualDepartureDate: TODAY,
+  };
+  const DROPPED_OFF = {
+    actualDropoffAt: '2026-07-17T17:09:00.000Z',
+    actualDropoffDate: TODAY,
+  };
+
+  function statusOf(
+    overrides: Partial<ScheduleEntry> = {},
+    dateOffsetDays = 0,
+    arrivalTime = '11:55',
+  ): TripStatus {
+    return resolveDisplayStatus(
+      entry('run-a', arrivalTime, { waitMinutes: 10, ...overrides }),
+      dateOffsetDays,
+      DURATION_SECONDS,
+      NOON,
+    );
+  }
+
+  // THE reported case: the bus arrived and is still sitting at the kerb,
+  // the clock has wandered into the run's window, and the row was
+  // announcing a journey that has not begun.
+  it('picked up but not yet departed reads UPCOMING, even though the clock says in-progress', () => {
+    // The clock genuinely disagrees — proving this isn't just a run that
+    // hadn't started yet.
+    expect(getOccurrenceStatus('11:55', 0, DURATION_SECONDS, NOON)).toBe(
+      'in-progress',
+    );
+
+    expect(statusOf(PICKED_UP)).toBe('upcoming');
+  });
+
+  it('a confirmed departure reads IN PROGRESS', () => {
+    expect(statusOf({ ...PICKED_UP, ...DEPARTED })).toBe('in-progress');
+  });
+
+  it('a confirmed drop-off reads COMPLETED, outranking the departure', () => {
+    expect(statusOf({ ...PICKED_UP, ...DEPARTED, ...DROPPED_OFF })).toBe(
+      'completed',
+    );
+  });
+
+  // The dark-vehicle case: nothing was ever observed, but the whole window
+  // is behind us. Calling that "upcoming" would be a plain lie.
+  it('no facts at all with the window fully elapsed reads COMPLETED', () => {
+    // 09:00 + 20 min ended at 09:20, hours before noon.
+    expect(statusOf({}, 0, '09:00')).toBe('completed');
+  });
+
+  it('no facts at all before the run starts reads UPCOMING', () => {
+    expect(statusOf({}, 0, '14:00')).toBe('upcoming');
+  });
+
+  // Only the clock-based in-progress is downgraded — the other two clock
+  // answers pass through untouched.
+  it('an unconfirmed run mid-window is the ONLY clock answer that changes', () => {
+    // Same entry, same instant, no facts: was in-progress, now upcoming.
+    expect(getOccurrenceStatus('11:55', 0, DURATION_SECONDS, NOON)).toBe(
+      'in-progress',
+    );
+    expect(statusOf({})).toBe('upcoming');
+  });
+
+  // A future day can never match today's stamps, so it falls straight
+  // through to the clock path it always used.
+  it("TOMORROW's row ignores today's real facts entirely", () => {
+    // Every fact recorded today, including a completed drop-off...
+    const allFactsToday = { ...PICKED_UP, ...DEPARTED, ...DROPPED_OFF };
+
+    // ...and tomorrow's occurrence of the same recurring entry is still
+    // simply upcoming, exactly as the bare clock would say.
+    expect(statusOf(allFactsToday, 1)).toBe('upcoming');
+    expect(getOccurrenceStatus('11:55', 1, DURATION_SECONDS, NOON)).toBe(
+      'upcoming',
+    );
+  });
+
+  it('a departure stamp from a DIFFERENT date never promotes a row', () => {
+    // Yesterday's departure sitting on this daily-recurring entry.
+    expect(
+      statusOf({
+        ...PICKED_UP,
+        actualDepartureAt: '2026-07-16T16:59:00.000Z',
+        actualDepartureDate: '2026-07-16',
+      }),
+    ).toBe('upcoming');
   });
 });

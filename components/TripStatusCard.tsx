@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { ChevronDown, Locate } from 'lucide-react';
 import { formatClock12Hour } from '@/lib/clockFormat';
 import { selectActiveFromDailyPools } from '@/lib/scheduleEntry';
-import { getOccurrenceStatus } from '@/lib/scheduleOccurrence';
 import type { TripStatus } from '@/lib/scheduleStatus';
 import ScheduleTimeline from './ScheduleTimeline';
 
@@ -50,7 +49,6 @@ export default function TripStatusCard({
   markerStatus,
   serviceNote,
   pickupLabel,
-  destinationLabel,
   totalDurationSeconds,
   color,
   now,
@@ -100,6 +98,10 @@ export default function TripStatusCard({
   // prominently on the card, never buried in the collapsed schedule.
   serviceNote?: string | null;
   pickupLabel: string;
+  // Still accepted and still passed by the page — nothing on the card
+  // paints it since the estimated-arrival block was removed, kept for the
+  // same reason positionConfident was: the data is a prop away if a
+  // destination line ever returns.
   destinationLabel: string;
   totalDurationSeconds: number;
   // This vehicle's own map-marker color (getRouteColor by index) — the
@@ -130,14 +132,6 @@ export default function TripStatusCard({
     now,
   );
   const active = selection?.entry ?? null;
-  const activeStatus = active
-    ? getOccurrenceStatus(
-        active.arrivalTime,
-        selection?.dateOffsetDays ?? 0,
-        active.waitMinutes * 60 + totalDurationSeconds,
-        now,
-      )
-    : null;
   const activeCancelled = active?.cancelled === true;
 
   return (
@@ -284,50 +278,20 @@ export default function TripStatusCard({
         </p>
       )}
 
-      {/* The emphasized predicted-arrival block: ONLY for a real
-          (non-cancelled) run currently in progress on a live vehicle —
-          upcoming, fully-done, and cancelled runs don't get a big number
-          that isn't happening right now. */}
-      {hasPosition &&
-        active !== null &&
-        !activeCancelled &&
-        activeStatus === 'in-progress' &&
-        active.predictedArrivalRange && (
-          <div
-            className="mt-3 rounded-lg p-3"
-            style={{
-              background:
-                'color-mix(in srgb, var(--color-accent) 8%, transparent)',
-            }}
-          >
-            <p className="text-2xl font-medium">
-              {/* En-dash range; a single time when both ends agree. */}
-              {active.predictedArrivalRange.early ===
-              active.predictedArrivalRange.late
-                ? active.predictedArrivalRange.early
-                : `${active.predictedArrivalRange.early}–${active.predictedArrivalRange.late}`}
-            </p>
-            <p className="mt-0.5 text-sm">
-              Estimated arrival at {destinationLabel}
-            </p>
-            {/* Distinct from the header's live "Updated Xm ago": this
-                number was computed once, at booking — not live-refreshed. */}
-            <p
-              className="mt-0.5 text-xs"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              Predicted at booking
-            </p>
-          </div>
-        )}
+      {/* The emphasized predicted-arrival block that used to sit here (a
+          large predicted time, "Estimated arrival at ...", "Predicted at
+          booking") is GONE. Display-only removal, on the same terms as
+          every other retirement on this card: the prediction is still
+          computed at booking, still stored, still sent — nothing upstream
+          of the render was touched, and predictedArrivalRange stays on the
+          row type so it can be shown again without recomputing anything.
 
-      {/* Collapsed by default, always — the block above already surfaces an
-          in-progress run without expanding. Both toggles are hidden only
-          when the vehicle has NOTHING in either pool at all (a fully
-          emptied assignment, e.g. every run moved by an L1 replace) —
-          otherwise each toggle always shows, and an individually-empty
-          pool (Phase N6: a real, correct outcome, not a bug) says so
-          explicitly instead of rendering an ambiguous blank panel. */}
+          Collapsed by default, always. Both toggles are hidden only when
+          the vehicle has NOTHING in either pool at all (a fully emptied
+          assignment, e.g. every run moved by an L1 replace) — otherwise
+          each toggle always shows, and an individually-empty pool (Phase
+          N6: a real, correct outcome, not a bug) says so explicitly
+          instead of rendering an ambiguous blank panel. */}
       {(schedule.length > 0 || tomorrowSchedule.length > 0) && (
         <>
           <button
@@ -368,6 +332,10 @@ export default function TripStatusCard({
                 actualPickups={schedule.map(
                   (entry) => entry.actualPickupClock ?? null,
                 )}
+                // Phase P: the server's fact-aware status per row — a run
+                // reads "In progress" only once a real departure was
+                // observed, never because the clock entered its window.
+                statuses={schedule.map((entry) => entry.status)}
                 cancelledEntries={schedule.map(
                   (entry) => entry.cancelled === true,
                 )}
@@ -408,6 +376,7 @@ export default function TripStatusCard({
                 actualPickups={tomorrowSchedule.map(
                   (entry) => entry.actualPickupClock ?? null,
                 )}
+                statuses={tomorrowSchedule.map((entry) => entry.status)}
                 cancelledEntries={tomorrowSchedule.map(
                   (entry) => entry.cancelled === true,
                 )}
